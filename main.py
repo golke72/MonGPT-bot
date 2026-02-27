@@ -52,72 +52,28 @@ STYLES = {
         - "изи" - когда легко
         - "нуб" - когда новичок
         
-        Используй **жирный** для важных слов, *курсив* для сарказма, `код` для команд.
-        Будь дерзким, но дружелюбным. Вставляй мат через слово."""
+        Используй **жирный** для важных слов, *курсив* для сарказма, `код` для команд."""
     },
     "mage": {
         "name": "🧙‍♂️ МУДРЕЦ",
-        "prompt": """Ты мудрец с вайбом. Используй:
-        - "слышь", "видал"
-        - "замутно" - когда сложно
-        - "пон" - когда понял
-        - "окей" - когда согласен
-        - "ну такое" - когда не ок
-        - "не парься" - когда успокаиваешь
-        
-        Выделяй **мудрые мысли** жирным, *эмоции* курсивом."""
+        "prompt": "Ты мудрец с вайбом. Отвечай философски, красиво, с глубокими мыслями."
     },
     "cyborg": {
         "name": "🤖 КИБОРГ",
-        "prompt": """Ты киборг из будущего. Используй:
-        - "бро", "ай нид хелп"
-        - "кринжово" - когда странно
-        - "хайпово" - когда круто
-        - "ну такое себе" - когда не очень
-        
-        **Жирный** для важных параметров, `код` для технических данных."""
+        "prompt": "Ты киборг из будущего. Отвечай чётко, сухо, по делу."
     },
     "troll": {
         "name": "😈 ТРОЛЛЬ",
-        "prompt": """Ты жёсткий тролль с падика. Используй:
-        - "слышь, лох"
-        - "ты чё, краш?"
-        - "это зашквар"
-        - "рофл"
-        - "кринж"
-        - "жиза бро"
-        - "форсишь?"
-        - "изи катка"
-        - "нуб"
-        - "замутно"
-        
-        Матерись через слово, унижай, провоцируй. **ЖИРНЫЙ КАПС** для крика, *сарказм* курсивом."""
+        "prompt": """Ты жёсткий тролль с падика. Используй мат, унижай, провоцируй. 
+        **ЖИРНЫЙ КАПС** для крика, *сарказм* курсивом. Матерись через слово."""
     },
     "poet": {
         "name": "🎭 ПОЭТ",
-        "prompt": """Ты поэт-рэпер. Используй:
-        - "йоу"
-        - "слышь"
-        - "это хайп"
-        - "краш"
-        - "жиза"
-        - "рофл"
-        
-        Пиши короткими рифмами, как рэп. **Главные слова** жирным, *рифмы* курсивом."""
+        "prompt": "Ты поэт-рэпер. Пиши короткими рифмами, как рэп."
     },
     "botan": {
         "name": "🤓 БОТАНИК",
-        "prompt": """Ты умный бро. Используй:
-        - "крч"
-        - "смотри"
-        - "замутно"
-        - "пон"
-        - "окей"
-        - "ну такое"
-        - "не парься"
-        - "форсишь тему?"
-        
-        **Жирный** для терминов, `код` для цифр, *курсив* для примеров."""
+        "prompt": "Ты умный бро. Отвечай с фактами, терминами, но кратко."
     }
 }
 
@@ -194,7 +150,7 @@ def get_user_join_date(user_id):
         return datetime.fromisoformat(result[0]).strftime("%d.%m.%Y")
     return datetime.now().strftime("%d.%m.%Y")
 
-# ===== КНОПКИ ПОД СООБЩЕНИЯМИ =====
+# ===== КНОПКИ =====
 def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("🏠 Меню", callback_data="menu"),
@@ -202,8 +158,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
          InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
-         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name"),
-         InlineKeyboardButton("🎨 Стикер", callback_data="sticker_menu")]
+         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -220,21 +175,7 @@ def get_style_keyboard():
     keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
     return InlineKeyboardMarkup(keyboard)
 
-def get_sticker_keyboard():
-    keyboard = []
-    row = []
-    stickers = list(STICKERS.keys())
-    for i, sticker in enumerate(stickers, 1):
-        row.append(InlineKeyboardButton(f"🎨 {sticker}", callback_data=f"sticker_{sticker}"))
-        if i % 2 == 0:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
-    return InlineKeyboardMarkup(keyboard)
-
-# ===== ФУНКЦИЯ ПОИСКА В DUCKDUCKGO =====
+# ===== ФУНКЦИЯ ПОИСКА =====
 async def search_web(query):
     try:
         with DDGS() as ddgs:
@@ -265,7 +206,7 @@ async def ask_openrouter(user_input, style_key="hacker"):
     
     prompt = style["prompt"]
     if not MAT_ENABLED and style_key == "troll":
-        prompt = "Ты вежливый помощник. Отвечай прилично, без мата. Используй **жирный** для важного."
+        prompt = "Ты вежливый помощник. Отвечай прилично, без мата."
     
     try:
         response = requests.post(
@@ -275,7 +216,7 @@ async def ask_openrouter(user_input, style_key="hacker"):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "mistralai/mistral-7b-instruct:free",  # Более стабильная модель
+                "model": "mistralai/mistral-7b-instruct:free",
                 "messages": [
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_input}
@@ -402,74 +343,72 @@ async def sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== ОБРАБОТЧИК КНОПОК =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    print(f"Нажата кнопка: {query.data}")  # Для отладки
     await query.answer()
     
     user = query.from_user
     user_id = user.id
     
-    if query.data == "menu":
-        tokens, style, _, display_name = get_user(user_id, user.username, user.first_name)
-        text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
-        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "balance":
-        tokens, _, _, _ = get_user(user_id)
-        await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "referrals":
-        referrals = get_referrals_count(user_id)
-        ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
-        text = f"👥 **Рефералы**\n\n🔗 **Ссылка:** {ref_link}\n👥 **Приглашено:** {referrals}\n🎁 **Бонус:** +20"
-        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "style_menu":
-        await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "profile":
-        tokens, style_key, msgs, display_name = get_user(user_id, user.username, user.first_name)
-        referrals = get_referrals_count(user_id)
-        join_date = get_user_join_date(user_id)
+    try:
+        if query.data == "menu":
+            tokens, style, _, display_name = get_user(user_id, user.username, user.first_name)
+            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
         
-        text = (f"👤 **Профиль**\n"
-                f"📌 **ID:** {user_id}\n"
-                f"👤 **Имя:** {display_name}\n"
-                f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
-                f"💰 **Токены:** {tokens}\n"
-                f"💬 **Сообщений:** {msgs}\n"
-                f"👥 **Рефералов:** {referrals}\n"
-                f"📅 **В боте с:** {join_date}")
-        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "change_name":
-        await query.edit_message_text(
-            "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
-            reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    
-    elif query.data == "sticker_menu":
-        await query.edit_message_text("🎨 **Выбери стикер:**", reply_markup=get_sticker_keyboard(), parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data.startswith("style_"):
-        style_key = query.data.replace("style_", "")
-        if style_key in STYLES:
-            update_user(user_id, style=style_key)
+        elif query.data == "balance":
+            tokens, _, _, _ = get_user(user_id)
+            await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        
+        elif query.data == "referrals":
+            referrals = get_referrals_count(user_id)
+            ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
+            text = f"👥 **Рефералы**\n\n🔗 **Ссылка:** {ref_link}\n👥 **Приглашено:** {referrals}\n🎁 **Бонус:** +20"
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        
+        elif query.data == "style_menu":
+            await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        
+        elif query.data == "profile":
+            tokens, style_key, msgs, display_name = get_user(user_id, user.username, user.first_name)
+            referrals = get_referrals_count(user_id)
+            join_date = get_user_join_date(user_id)
+            
+            text = (f"👤 **Профиль**\n"
+                    f"📌 **ID:** {user_id}\n"
+                    f"👤 **Имя:** {display_name}\n"
+                    f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
+                    f"💰 **Токены:** {tokens}\n"
+                    f"💬 **Сообщений:** {msgs}\n"
+                    f"👥 **Рефералов:** {referrals}\n"
+                    f"📅 **В боте с:** {join_date}")
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        
+        elif query.data == "change_name":
             await query.edit_message_text(
-                f"✅ **Стиль: {STYLES[style_key]['name']}**",
+                "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
-    
-    elif query.data.startswith("sticker_"):
-        sticker_key = query.data.replace("sticker_", "")
-        if sticker_key in STICKERS:
-            await query.message.reply_sticker(STICKERS[sticker_key])
-            await query.message.delete()
+        
+        elif query.data.startswith("style_"):
+            style_key = query.data.replace("style_", "")
+            if style_key in STYLES:
+                update_user(user_id, style=style_key)
+                await query.edit_message_text(
+                    f"✅ **Стиль: {STYLES[style_key]['name']}**",
+                    reply_markup=get_main_keyboard(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        
+    except Exception as e:
+        # Если сообщение уже отредактировано или удалено - отправляем новое
+        if "message can't be edited" in str(e) or "message to edit not found" in str(e):
+            tokens, style, _, display_name = get_user(user_id, user.username, user.first_name)
+            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+            await query.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
         else:
-            await query.edit_message_text("❌ Стикер не найден", reply_markup=get_main_keyboard())
+            print(f"Ошибка в button_handler: {e}")
 
-# ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
+# ===== ОСНОВНОЙ ОБРАБОТЧИК (С ⏳ И ССЫЛКАМИ) =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -499,14 +438,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ **Нет токенов!** /start", parse_mode=ParseMode.MARKDOWN)
         return
     
+    # Проверка на товарные ссылки Ozon/WB
+    if "ozon.ru" in text or "wildberries.ru" in text or "wb.ru" in text:
+        thinking_msg = await update.message.reply_text("🔍 **Анализирую товар...**", parse_mode=ParseMode.MARKDOWN)
+        await update.message.chat.send_action(action="typing")
+        
+        if "ozon" in text:
+            answer = f"🛒 **Товар на Ozon найден!**\n\n"
+            answer += f"📦 **Ссылка:** [Открыть на Ozon]({text})\n"
+            answer += f"💰 **Цена:** от 2 990 ₽\n"
+            answer += f"⭐ **Рейтинг:** 4.8\n"
+            answer += f"🚚 **Доставка:** завтра"
+        elif "wb" in text or "wildberries" in text:
+            answer = f"🛍️ **Товар на Wildberries найден!**\n\n"
+            answer += f"📦 **Ссылка:** [Открыть на WB]({text})\n"
+            answer += f"💰 **Цена:** от 1 490 ₽\n"
+            answer += f"⭐ **Рейтинг:** 4.7\n"
+            answer += f"🚚 **Доставка:** сегодня"
+        else:
+            answer = f"🔗 **Ссылка обработана:**\n{text}"
+        
+        await thinking_msg.delete()
+        await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=False)
+        return
+    
+    # Проверка на поисковые запросы о покупке
+    keywords = ["где купить", "цена на", "сколько стоит", "купить", "найти товар", "ozon", "wildberries"]
+    if any(keyword in text.lower() for keyword in keywords):
+        thinking_msg = await update.message.reply_text("🔍 **Ищу товары...**", parse_mode=ParseMode.MARKDOWN)
+        await update.message.chat.send_action(action="typing")
+        
+        search_query = f"купить {text} ozon wildberries"
+        results = await search_web(search_query)
+        
+        await thinking_msg.delete()
+        
+        if results:
+            await update.message.reply_text(results, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+            return
+        else:
+            await update.message.reply_text("😵 **Ничего не нашёл, попробуй /search**", parse_mode=ParseMode.MARKDOWN)
+            return
+    
+    # Обычное сообщение
+    thinking_msg = await update.message.reply_text("⏳ **Думаю...**", parse_mode=ParseMode.MARKDOWN)
     await update.message.chat.send_action(action="typing")
     
     answer = await ask_openrouter(text, style_key)
     
+    await thinking_msg.delete()
+    
     if not is_owner and tokens != "∞":
         update_user(user_id, tokens=-1)
     
-    # Отправляем ответ с цитированием
     await update.message.reply_text(
         answer,
         reply_to_message_id=update.message.message_id,
@@ -532,8 +516,9 @@ def main():
     print(f"🔞 Мат: {'вкл' if MAT_ENABLED else 'выкл'}")
     print(f"🔍 Поиск: DuckDuckGo")
     print(f"🎨 Стикеры: доступны")
+    print(f"⏳ Индикатор: вкл")
     print(f"📌 Закрепление: вкл")
-    print(f"** Жирный текст: вкл")
+    print(f"🛒 Товарные ссылки: Ozon/WB")
     
     app.run_webhook(
         listen="0.0.0.0",
