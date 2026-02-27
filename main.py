@@ -27,18 +27,6 @@ OWNER_ID = 7745009183
 MAT_ENABLED = True
 # ==========================
 
-# ===== БАЗА ДАННЫХ ДЛЯ ИГР =====
-active_games = {}
-challenges = {}
-
-# ===== КАРТЫ ДЛЯ BLACKJACK =====
-CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-SUITS = ['♠', '♥', '♦', '♣']
-CARD_VALUES = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
-    'J': 10, 'Q': 10, 'K': 10, 'A': 11
-}
-
 # ===== СТИЛИ ОБЩЕНИЯ =====
 STYLES = {
     "hacker": {
@@ -92,14 +80,13 @@ def init_db():
                   messages INTEGER DEFAULT 0,
                   wins INTEGER DEFAULT 0,
                   losses INTEGER DEFAULT 0,
-                  blackjack_wins INTEGER DEFAULT 0,
                   joined_date TIMESTAMP)''')
     conn.commit()
     conn.close()
 
 def get_user(user_id, username=None, first_name=None, referrer=None):
     if user_id == OWNER_ID:
-        return "∞", "hacker", 0, "∞", 0, 0, 0
+        return "∞", "hacker", 0, "∞", 0, 0
     
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
@@ -117,19 +104,18 @@ def get_user(user_id, username=None, first_name=None, referrer=None):
                   (user_id, username, first_name, display_name, 100, "hacker", referrer, datetime.now()))
         conn.commit()
         conn.close()
-        return 100, "hacker", 0, display_name, 0, 0, 0
+        return 100, "hacker", 0, display_name, 0, 0
     
     style = user[2] if len(user) > 2 and user[2] in STYLES else "hacker"
     tokens = user[1] if len(user) > 1 else 100
     display_name = user[4] if len(user) > 4 and user[4] else first_name or username or f"User{user_id}"
     wins = user[7] if len(user) > 7 else 0
     losses = user[8] if len(user) > 8 else 0
-    bj_wins = user[9] if len(user) > 9 else 0
     
     conn.close()
-    return tokens, style, user[6], display_name, wins, losses, bj_wins
+    return tokens, style, user[6], display_name, wins, losses
 
-def update_user(user_id, tokens=None, style=None, display_name=None, wins=None, losses=None, bj_wins=None):
+def update_user(user_id, tokens=None, style=None, display_name=None, wins=None, losses=None):
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
     if tokens:
@@ -142,8 +128,6 @@ def update_user(user_id, tokens=None, style=None, display_name=None, wins=None, 
         c.execute("UPDATE users SET wins = wins + ? WHERE id=?", (wins, user_id))
     if losses is not None:
         c.execute("UPDATE users SET losses = losses + ? WHERE id=?", (losses, user_id))
-    if bj_wins is not None:
-        c.execute("UPDATE users SET blackjack_wins = blackjack_wins + ? WHERE id=?", (bj_wins, user_id))
     c.execute("UPDATE users SET messages = messages + 1 WHERE id=?", (user_id,))
     conn.commit()
     conn.close()
@@ -181,469 +165,6 @@ def get_user_rank(messages, is_owner=False):
     else:
         return "🟢 НОВИЧОК"
 
-# ===== ФУНКЦИИ ДЛЯ BLACKJACK =====
-def create_deck():
-    deck = []
-    for suit in SUITS:
-        for card in CARDS:
-            deck.append(f"{card}{suit}")
-    random.shuffle(deck)
-    return deck
-
-def calculate_hand(hand):
-    total = 0
-    aces = 0
-    for card in hand:
-        card_value = card[:-1]
-        if card_value == 'A':
-            aces += 1
-            total += 11
-        else:
-            total += CARD_VALUES[card_value]
-    
-    while total > 21 and aces > 0:
-        total -= 10
-        aces -= 1
-    
-    return total
-
-def hand_to_string(hand):
-    return ' '.join(hand)
-
-async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = user.id
-    
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "🃏 **BLACKJACK**\n\n"
-            "Использование:\n"
-            "/bj [сумма] — играть с ботом\n"
-            "/bj @user [сумма] — вызвать игрока\n"
-            "/bj accept — принять вызов\n"
-            "/bj stats — статистика игр",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    if args[0] == "stats":
-        tokens, style, _, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
-        total = wins + losses
-        winrate = (wins / total * 100) if total > 0 else 0
-        
-        text = (f"📊 **Статистика BlackJack**\n\n"
-                f"👤 Игрок: {display_name}\n"
-                f"🏆 Побед: {wins}\n"
-                f"💔 Поражений: {losses}\n"
-                f"📈 Всего игр: {total}\n"
-                f"🎯 Винрейт: {winrate:.1f}%\n"
-                f"🃏 Блэкджеков: {bj_wins}")
-        
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        return
-    
-    if args[0] == "accept":
-        if user_id not in challenges:
-            await update.message.reply_text("❌ У тебя нет активных вызовов!")
-            return
-        
-        challenge = challenges[user_id]
-        game_id = f"game_{datetime.now().timestamp()}"
-        
-        challenger_tokens, _, _, _, _, _, _ = get_user(challenge['from'])
-        target_tokens, _, _, _, _, _, _ = get_user(user_id)
-        
-        if challenger_tokens != "∞" and challenger_tokens < challenge['bet']:
-            await update.message.reply_text("❌ У противника не хватает токенов!")
-            del challenges[user_id]
-            return
-        
-        if target_tokens != "∞" and target_tokens < challenge['bet']:
-            await update.message.reply_text(f"❌ У тебя не хватает токенов! Нужно {challenge['bet']}")
-            del challenges[user_id]
-            return
-        
-        active_games[game_id] = {
-            'player1': challenge['from'],
-            'player2': user_id,
-            'bet': challenge['bet'],
-            'player1_hand': [],
-            'player2_hand': [],
-            'deck': create_deck(),
-            'turn': challenge['from'],
-            'player1_stood': False,
-            'player2_stood': False,
-            'message_id': None,
-            'chat_id': update.message.chat_id
-        }
-        
-        game = active_games[game_id]
-        for _ in range(2):
-            game['player1_hand'].append(game['deck'].pop())
-            game['player2_hand'].append(game['deck'].pop())
-        
-        keyboard = [
-            [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
-             InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
-        ]
-        
-        p1_hand = hand_to_string(game['player1_hand'])
-        p2_hand = hand_to_string(game['player2_hand'][:1]) + " 🂠"
-        p1_score = calculate_hand(game['player1_hand'])
-        
-        text = (f"🃏 **BLACKJACK**\n\n"
-                f"💰 Ставка: {game['bet']} токенов\n\n"
-                f"👤 Игрок 1: @{ (await context.bot.get_chat(game['player1'])).username or 'Игрок' }\n"
-                f"Карты: {p1_hand}\n"
-                f"Очки: {p1_score}\n\n"
-                f"👤 Игрок 2: @{ (await context.bot.get_chat(game['player2'])).username or 'Игрок' }\n"
-                f"Карты: {p2_hand}\n\n"
-                f"🎮 Ходит: Игрок 1")
-        
-        msg = await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
-        game['message_id'] = msg.message_id
-        
-        del challenges[user_id]
-        return
-    
-    if args[0].startswith('@'):
-        target_username = args[0]
-        if len(args) < 2:
-            await update.message.reply_text("❌ Укажи сумму ставки!\nПример: /bj @user 100")
-            return
-        
-        try:
-            bet = int(args[1])
-            if bet <= 0:
-                raise ValueError
-        except:
-            await update.message.reply_text("❌ Неверная сумма ставки!")
-            return
-        
-        target_id = None
-        conn = sqlite3.connect('mongpt.db')
-        c = conn.cursor()
-        c.execute("SELECT id FROM users WHERE username=?", (target_username[1:],))
-        result = c.fetchone()
-        conn.close()
-        
-        if result:
-            target_id = result[0]
-        else:
-            await update.message.reply_text("❌ Пользователь не найден в базе!")
-            return
-        
-        tokens, _, _, _, _, _, _ = get_user(user_id)
-        if tokens != "∞" and tokens < bet:
-            await update.message.reply_text(f"❌ У тебя недостаточно токенов! Есть {tokens}, нужно {bet}")
-            return
-        
-        challenges[target_id] = {
-            'from': user_id,
-            'bet': bet,
-            'time': datetime.now()
-        }
-        
-        await update.message.reply_text(
-            f"🎮 **ВЫЗОВ ОТПРАВЛЕН!**\n\n"
-            f"👤 Противник: {args[0]}\n"
-            f"💰 Ставка: {bet} токенов\n\n"
-            f"⏳ Ожидание ответа...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-        try:
-            await context.bot.send_message(
-                target_id,
-                f"🎮 **ТЕБЯ ВЫЗЫВАЮТ НА BLACKJACK!**\n\n"
-                f"👤 Противник: @{update.effective_user.username or 'Игрок'}\n"
-                f"💰 Ставка: {bet} токенов\n\n"
-                f"Чтобы принять, напиши /bj accept",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except:
-            await update.message.reply_text("⚠️ Не удалось уведомить игрока, но вызов активен.")
-    
-    else:
-        try:
-            bet = int(args[0])
-            if bet <= 0:
-                raise ValueError
-        except:
-            await update.message.reply_text("❌ Неверная сумма ставки!")
-            return
-        
-        tokens, _, _, _, _, _, _ = get_user(user_id)
-        if tokens != "∞" and tokens < bet:
-            await update.message.reply_text(f"❌ У тебя недостаточно токенов! Есть {tokens}, нужно {bet}")
-            return
-        
-        game_id = f"bot_game_{user_id}_{datetime.now().timestamp()}"
-        
-        deck = create_deck()
-        player_hand = []
-        bot_hand = []
-        
-        for _ in range(2):
-            player_hand.append(deck.pop())
-            bot_hand.append(deck.pop())
-        
-        active_games[game_id] = {
-            'player': user_id,
-            'bet': bet,
-            'player_hand': player_hand,
-            'bot_hand': bot_hand,
-            'deck': deck,
-            'game_over': False,
-            'message_id': None,
-            'chat_id': update.message.chat_id
-        }
-        
-        keyboard = [
-            [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
-             InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
-        ]
-        
-        player_score = calculate_hand(player_hand)
-        bot_score = calculate_hand([bot_hand[0]])
-        
-        text = (f"🃏 **BLACKJACK**\n\n"
-                f"💰 Ставка: {bet} токенов\n\n"
-                f"👤 Твои карты: {hand_to_string(player_hand)}\n"
-                f"📊 Твои очки: {player_score}\n\n"
-                f"🤖 Карты бота: {hand_to_string(bot_hand[:1])} 🂠\n"
-                f"📊 Очки бота: {bot_score}")
-        
-        msg = await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
-        active_games[game_id]['message_id'] = msg.message_id
-
-async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data.split('_')
-    action = data[1]
-    game_id = '_'.join(data[2:])
-    
-    if game_id not in active_games:
-        await query.edit_message_text("❌ Игра уже закончена или не существует!")
-        return
-    
-    game = active_games[game_id]
-    user_id = query.from_user.id
-    
-    if 'bot' in game_id:
-        if user_id != game['player']:
-            await query.answer("Это не твоя игра!", show_alert=True)
-            return
-        
-        if game['game_over']:
-            return
-        
-        if action == 'hit':
-            new_card = game['deck'].pop()
-            game['player_hand'].append(new_card)
-            player_score = calculate_hand(game['player_hand'])
-            
-            if player_score > 21:
-                game['game_over'] = True
-                if game['bet'] != "∞":
-                    update_user(user_id, tokens=-game['bet'])
-                    update_user(user_id, losses=1)
-                
-                text = (f"🃏 **BLACKJACK**\n\n"
-                        f"💰 Ставка: {game['bet']} токенов\n\n"
-                        f"👤 Твои карты: {hand_to_string(game['player_hand'])}\n"
-                        f"📊 Твои очки: {player_score}\n\n"
-                        f"🤖 Карты бота: {hand_to_string(game['bot_hand'])}\n"
-                        f"📊 Очки бота: {calculate_hand(game['bot_hand'])}\n\n"
-                        f"💔 **ТЫ ПРОИГРАЛ!** Перебор.")
-                
-                await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-                del active_games[game_id]
-                return
-            
-            bot_score = calculate_hand([game['bot_hand'][0]])
-            text = (f"🃏 **BLACKJACK**\n\n"
-                    f"💰 Ставка: {game['bet']} токенов\n\n"
-                    f"👤 Твои карты: {hand_to_string(game['player_hand'])}\n"
-                    f"📊 Твои очки: {player_score}\n\n"
-                    f"🤖 Карты бота: {hand_to_string(game['bot_hand'][:1])} 🂠\n"
-                    f"📊 Очки бота: {bot_score}")
-            
-            keyboard = [
-                [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
-                 InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
-            ]
-            
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
-        
-        elif action == 'stand':
-            game['game_over'] = True
-            player_score = calculate_hand(game['player_hand'])
-            bot_score = calculate_hand(game['bot_hand'])
-            
-            while bot_score < 17:
-                new_card = game['deck'].pop()
-                game['bot_hand'].append(new_card)
-                bot_score = calculate_hand(game['bot_hand'])
-            
-            result_text = ""
-            if bot_score > 21 or player_score > bot_score:
-                result_text = "🎉 **ТЫ ВЫИГРАЛ!**"
-                if game['bet'] != "∞":
-                    update_user(user_id, tokens=game['bet'] * 2)
-                    update_user(user_id, wins=1)
-            elif player_score < bot_score:
-                result_text = "💔 **ТЫ ПРОИГРАЛ!**"
-                if game['bet'] != "∞":
-                    update_user(user_id, tokens=-game['bet'])
-                    update_user(user_id, losses=1)
-            else:
-                result_text = "🤝 **НИЧЬЯ!**"
-            
-            text = (f"🃏 **BLACKJACK**\n\n"
-                    f"💰 Ставка: {game['bet']} токенов\n\n"
-                    f"👤 Твои карты: {hand_to_string(game['player_hand'])}\n"
-                    f"📊 Твои очки: {player_score}\n\n"
-                    f"🤖 Карты бота: {hand_to_string(game['bot_hand'])}\n"
-                    f"📊 Очки бота: {bot_score}\n\n"
-                    f"{result_text}")
-            
-            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-            del active_games[game_id]
-    
-    else:
-        if user_id not in [game['player1'], game['player2']]:
-            await query.answer("Это не твоя игра!", show_alert=True)
-            return
-        
-        if game['turn'] != user_id:
-            await query.answer("Сейчас не твой ход!", show_alert=True)
-            return
-        
-        if action == 'hit':
-            if user_id == game['player1']:
-                game['player1_hand'].append(game['deck'].pop())
-                score = calculate_hand(game['player1_hand'])
-                
-                if score > 21:
-                    game['player1_stood'] = True
-                    game['turn'] = game['player2']
-                    
-                    if game['player2_stood']:
-                        await finish_player_game(query, context, game, game_id)
-                        return
-                else:
-                    game['turn'] = game['player2']
-            else:
-                game['player2_hand'].append(game['deck'].pop())
-                score = calculate_hand(game['player2_hand'])
-                
-                if score > 21:
-                    game['player2_stood'] = True
-                    game['turn'] = game['player1']
-                    
-                    if game['player1_stood']:
-                        await finish_player_game(query, context, game, game_id)
-                        return
-                else:
-                    game['turn'] = game['player1']
-            
-            await update_player_game(query, context, game, game_id)
-        
-        elif action == 'stand':
-            if user_id == game['player1']:
-                game['player1_stood'] = True
-                game['turn'] = game['player2']
-            else:
-                game['player2_stood'] = True
-                game['turn'] = game['player1']
-            
-            if game['player1_stood'] and game['player2_stood']:
-                await finish_player_game(query, context, game, game_id)
-            else:
-                await update_player_game(query, context, game, game_id)
-
-async def update_player_game(query, context, game, game_id):
-    p1_score = calculate_hand(game['player1_hand'])
-    p2_score = calculate_hand(game['player2_hand'])
-    
-    p2_hand_display = hand_to_string(game['player2_hand'][:1]) + " 🂠" if game['turn'] == game['player1'] and not game['player2_stood'] else hand_to_string(game['player2_hand'])
-    p1_hand_display = hand_to_string(game['player1_hand'][:1]) + " 🂠" if game['turn'] == game['player2'] and not game['player1_stood'] else hand_to_string(game['player1_hand'])
-    
-    p1_score_display = p1_score if game['player1_stood'] or game['turn'] != game['player2'] else "?"
-    p2_score_display = p2_score if game['player2_stood'] or game['turn'] != game['player1'] else "?"
-    
-    turn_name = (await context.bot.get_chat(game['turn'])).first_name
-    
-    text = (f"🃏 **BLACKJACK**\n\n"
-            f"💰 Ставка: {game['bet']} токенов\n\n"
-            f"👤 Игрок 1:\n"
-            f"Карты: {p1_hand_display}\n"
-            f"Очки: {p1_score_display}\n\n"
-            f"👤 Игрок 2:\n"
-            f"Карты: {p2_hand_display}\n"
-            f"Очки: {p2_score_display}\n\n"
-            f"🎮 Ходит: {turn_name}")
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
-         InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
-    ]
-    
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
-
-async def finish_player_game(query, context, game, game_id):
-    p1_score = calculate_hand(game['player1_hand'])
-    p2_score = calculate_hand(game['player2_hand'])
-    
-    result_text = ""
-    if p1_score > 21:
-        result_text = "💔 Игрок 2 победил! (Игрок 1 перебрал)"
-        if game['bet'] != "∞":
-            update_user(game['player2'], tokens=game['bet'] * 2)
-            update_user(game['player2'], wins=1)
-            update_user(game['player1'], tokens=-game['bet'])
-            update_user(game['player1'], losses=1)
-    elif p2_score > 21:
-        result_text = "🎉 Игрок 1 победил! (Игрок 2 перебрал)"
-        if game['bet'] != "∞":
-            update_user(game['player1'], tokens=game['bet'] * 2)
-            update_user(game['player1'], wins=1)
-            update_user(game['player2'], tokens=-game['bet'])
-            update_user(game['player2'], losses=1)
-    elif p1_score > p2_score:
-        result_text = "🎉 Игрок 1 победил!"
-        if game['bet'] != "∞":
-            update_user(game['player1'], tokens=game['bet'] * 2)
-            update_user(game['player1'], wins=1)
-            update_user(game['player2'], tokens=-game['bet'])
-            update_user(game['player2'], losses=1)
-    elif p2_score > p1_score:
-        result_text = "🎉 Игрок 2 победил!"
-        if game['bet'] != "∞":
-            update_user(game['player2'], tokens=game['bet'] * 2)
-            update_user(game['player2'], wins=1)
-            update_user(game['player1'], tokens=-game['bet'])
-            update_user(game['player1'], losses=1)
-    else:
-        result_text = "🤝 НИЧЬЯ!"
-    
-    text = (f"🃏 **BLACKJACK**\n\n"
-            f"💰 Ставка: {game['bet']} токенов\n\n"
-            f"👤 Игрок 1:\n"
-            f"Карты: {hand_to_string(game['player1_hand'])}\n"
-            f"Очки: {p1_score}\n\n"
-            f"👤 Игрок 2:\n"
-            f"Карты: {hand_to_string(game['player2_hand'])}\n"
-            f"Очки: {p2_score}\n\n"
-            f"{result_text}")
-    
-    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-    del active_games[game_id]
-
 # ===== КНОПКИ =====
 def get_main_keyboard():
     keyboard = [
@@ -652,8 +173,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
          InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
-         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name"),
-         InlineKeyboardButton("🃏 BlackJack", callback_data="bj_menu")]
+         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -668,15 +188,6 @@ def get_style_keyboard():
     if row:
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_bj_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🤖 Играть с ботом", callback_data="bj_bot"),
-         InlineKeyboardButton("👥 Играть с другом", callback_data="bj_player")],
-        [InlineKeyboardButton("📊 Моя статистика", callback_data="bj_stats"),
-         InlineKeyboardButton("◀️ Назад", callback_data="menu")]
-    ]
     return InlineKeyboardMarkup(keyboard)
 
 # ===== ФУНКЦИЯ ПОИСКА =====
@@ -751,7 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
     
-    tokens, style, _, display_name, _, _, _ = get_user(user.id, user.username, user.first_name, referrer)
+    tokens, style, _, display_name, _, _ = get_user(user.id, user.username, user.first_name, referrer)
     
     text = f"👋 **Йоу, {display_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
     
@@ -799,7 +310,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     query = ' '.join(context.args)
     user_id = update.effective_user.id
-    tokens, _, _, _, _, _, _ = get_user(user_id)
+    tokens, _, _, _, _, _ = get_user(user_id)
     
     if tokens != "∞" and tokens < 1:
         await update.message.reply_text("❌ **Нет токенов!**", parse_mode=ParseMode.MARKDOWN)
@@ -907,134 +418,79 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
     user_id = user.id
     
-    try:
-        # МЕНЮ
-        if query.data == "menu":
-            tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
-            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
-            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
+    # МЕНЮ
+    if query.data == "menu":
+        tokens, style, _, display_name, _, _ = get_user(user_id, user.username, user.first_name)
+        text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    # БАЛАНС
+    if query.data == "balance":
+        tokens, _, _, _, _, _ = get_user(user_id)
+        await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    # РЕФЕРАЛЫ
+    if query.data == "referrals":
+        referrals = get_referrals_count(user_id)
+        ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
+        text = (f"👥 **Рефералы**\n\n"
+                f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
+                f"👥 **Приглашено:** {referrals}\n"
+                f"🎁 **Бонус за друга:** +20 токенов")
+        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    # МЕНЮ СТИЛЕЙ
+    if query.data == "style_menu":
+        await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    # ПРОФИЛЬ
+    if query.data == "profile":
+        tokens, style_key, msgs, display_name, wins, losses = get_user(user_id, user.username, user.first_name)
+        referrals = get_referrals_count(user_id)
+        join_date = get_user_join_date(user_id)
+        rank = get_user_rank(msgs, user_id == OWNER_ID)
         
-        # БАЛАНС
-        if query.data == "balance":
-            tokens, _, _, _, _, _, _ = get_user(user_id)
-            await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
+        total_games = wins + losses
+        winrate = (wins / total_games * 100) if total_games > 0 else 0
         
-        # РЕФЕРАЛЫ
-        if query.data == "referrals":
-            referrals = get_referrals_count(user_id)
-            ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
-            text = (f"👥 **Рефералы**\n\n"
-                    f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
-                    f"👥 **Приглашено:** {referrals}\n"
-                    f"🎁 **Бонус за друга:** +20 токенов")
-            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        # МЕНЮ СТИЛЕЙ
-        if query.data == "style_menu":
-            await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        # ПРОФИЛЬ
-        if query.data == "profile":
-            tokens, style_key, msgs, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
-            referrals = get_referrals_count(user_id)
-            join_date = get_user_join_date(user_id)
-            rank = get_user_rank(msgs, user_id == OWNER_ID)
-            
-            total_games = wins + losses
-            winrate = (wins / total_games * 100) if total_games > 0 else 0
-            
-            text = (f"👤 **ПРОФИЛЬ**\n"
-                    f"📌 **ID:** `{user_id}`\n"
-                    f"👤 **Имя:** {display_name}\n"
-                    f"🏆 **Ранг:** {rank}\n"
-                    f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
-                    f"💰 **Токены:** {tokens}\n"
-                    f"💬 **Сообщений:** {msgs}\n"
-                    f"👥 **Рефералов:** {referrals}\n"
-                    f"🃏 **BlackJack:** {wins} побед / {losses} поражений\n"
-                    f"📊 **Винрейт:** {winrate:.1f}%\n"
-                    f"📅 **В боте с:** {join_date}")
-            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        # СМЕНА ИМЕНИ
-        if query.data == "change_name":
+        text = (f"👤 **ПРОФИЛЬ**\n"
+                f"📌 **ID:** `{user_id}`\n"
+                f"👤 **Имя:** {display_name}\n"
+                f"🏆 **Ранг:** {rank}\n"
+                f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
+                f"💰 **Токены:** {tokens}\n"
+                f"💬 **Сообщений:** {msgs}\n"
+                f"👥 **Рефералов:** {referrals}\n"
+                f"🏆 **Игры:** {wins} побед / {losses} поражений\n"
+                f"📊 **Винрейт:** {winrate:.1f}%\n"
+                f"📅 **В боте с:** {join_date}")
+        await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    # СМЕНА ИМЕНИ
+    if query.data == "change_name":
+        await query.edit_message_text(
+            "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    # ВЫБОР СТИЛЯ
+    if query.data.startswith("style_"):
+        style_key = query.data.replace("style_", "")
+        if style_key in STYLES:
+            update_user(user_id, style=style_key)
             await query.edit_message_text(
-                "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
+                f"✅ **Стиль: {STYLES[style_key]['name']}**",
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
             return
-        
-        # МЕНЮ BLACKJACK
-        if query.data == "bj_menu":
-            await query.edit_message_text("🃏 **BLACKJACK**\n\nВыбери режим игры:", reply_markup=get_bj_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        # ИГРА С БОТОМ
-        if query.data == "bj_bot":
-            await query.edit_message_text(
-                "🃏 **ИГРА С БОТОМ**\n\n"
-                "Используй команду:\n"
-                "`/bj [сумма]` — начать игру с ботом\n\n"
-                "Пример: `/bj 100`",
-                reply_markup=get_main_keyboard(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        # ИГРА С ДРУГОМ
-        if query.data == "bj_player":
-            await query.edit_message_text(
-                "🃏 **ИГРА С ДРУГОМ**\n\n"
-                "Используй команду:\n"
-                "`/bj @user [сумма]` — вызвать игрока\n\n"
-                "Пример: `/bj @durov 100`",
-                reply_markup=get_main_keyboard(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        # СТАТИСТИКА BLACKJACK
-        if query.data == "bj_stats":
-            _, _, _, _, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
-            total = wins + losses
-            winrate = (wins / total * 100) if total > 0 else 0
-            
-            text = (f"📊 **ТВОЯ СТАТИСТИКА BLACKJACK**\n\n"
-                    f"🏆 Побед: {wins}\n"
-                    f"💔 Поражений: {losses}\n"
-                    f"📈 Всего игр: {total}\n"
-                    f"🎯 Винрейт: {winrate:.1f}%\n"
-                    f"🃏 Блэкджеков: {bj_wins}")
-            
-            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        # ВЫБОР СТИЛЯ
-        if query.data.startswith("style_"):
-            style_key = query.data.replace("style_", "")
-            if style_key in STYLES:
-                update_user(user_id, style=style_key)
-                await query.edit_message_text(
-                    f"✅ **Стиль: {STYLES[style_key]['name']}**",
-                    reply_markup=get_main_keyboard(),
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                return
-        
-    except Exception as e:
-        # Если сообщение нельзя отредактировать
-        if "message can't be edited" in str(e):
-            tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
-            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
-            await query.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
-        else:
-            print(f"Ошибка: {e}")
 
 # ===== ОСНОВНОЙ ОБРАБОТЧИК =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1056,15 +512,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await search_command(update, context)
         return
     
-    if text.startswith('/bj'):
-        await bj_command(update, context)
-        return
-    
     if text.startswith('/admin'):
         await admin_command(update, context)
         return
     
-    tokens, style_key, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
+    tokens, style_key, _, display_name, _, _ = get_user(user_id, user.username, user.first_name)
     
     if not is_owner and tokens != "∞" and tokens < 1:
         await update.message.reply_text("❌ **Нет токенов!** /start", parse_mode=ParseMode.MARKDOWN)
@@ -1140,16 +592,13 @@ def main():
     app.add_handler(CommandHandler("mat", mat_command))
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("name", name_command))
-    app.add_handler(CommandHandler("bj", bj_command))
     app.add_handler(CommandHandler("admin", admin_command))
-    app.add_handler(CallbackQueryHandler(bj_callback_handler, pattern="^bj_"))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🚀 MonGPT ULTIMATE с кнопками запущен!")
+    print("🚀 MonGPT ULTIMATE запущен!")
     print(f"🔞 Мат: {'вкл' if MAT_ENABLED else 'выкл'}")
     print(f"🔍 Поиск: DuckDuckGo")
-    print(f"🃏 BlackJack: доступен")
     print(f"👑 Админ-панель: доступна для @God_Mon1tyy")
     
     app.run_webhook(
