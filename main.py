@@ -4,12 +4,12 @@ import os
 import random
 import io
 from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from gtts import gTTS
 
-# ===== ТВОИ ДАННЫЕ (БЕРУТСЯ ИЗ RENDER) =====
-DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
+# ===== ТВОИ ДАННЫЕ =====
+OPENROUTER_KEY = "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"
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 PORT = int(os.environ.get('PORT', 10000))
 BOT_USERNAME = "@MonGPT_bot"
@@ -53,9 +53,7 @@ def get_user(user_id, username=None, first_name=None, referrer=None):
     user = c.fetchone()
     
     if not user:
-        # Новый пользователь
         if referrer and referrer != user_id:
-            # Начисляем бонус пригласившему
             c.execute("UPDATE users SET tokens = tokens + 20 WHERE id=?", (referrer,))
         
         c.execute("INSERT INTO users (id, username, first_name, tokens, style, referred_by, joined_date) VALUES (?,?,?,?,?,?,?)",
@@ -85,66 +83,55 @@ def get_referrals_count(user_id):
     conn.close()
     return count
 
-# ===== МЕНЮ =====
-def get_main_menu():
+# ===== КНОПКИ ПОД СООБЩЕНИЯМИ =====
+def get_main_keyboard():
     keyboard = [
-        [KeyboardButton("🏠 Меню"), KeyboardButton("💬 Сообщение"), KeyboardButton("➕ Новый чат")],
-        [KeyboardButton("⚙️ Настройки"), KeyboardButton("💰 Баланс"), KeyboardButton("👥 Рефералы")]
+        [InlineKeyboardButton("🏠 Меню", callback_data="menu"),
+         InlineKeyboardButton("💰 Баланс", callback_data="balance")],
+        [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
+         InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(keyboard)
 
-def get_settings_menu():
-    keyboard = [
-        [KeyboardButton("🎭 Сменить стиль"), KeyboardButton("🔊 Голос")],
-        [KeyboardButton("◀️ Назад")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_style_menu():
+def get_style_keyboard():
     keyboard = []
     for key, style in STYLES.items():
-        keyboard.append([KeyboardButton(style["name"])])
-    keyboard.append([KeyboardButton("◀️ Назад")])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        keyboard.append([InlineKeyboardButton(style["name"], callback_data=f"style_{key}")])
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
+    return InlineKeyboardMarkup(keyboard)
 
-# ===== ЗАПРОС К DEEPSEEK =====
-async def ask_deepseek(user_input, style_key="hacker"):
+# ===== ЗАПРОС К OPENROUTER =====
+async def ask_openrouter(user_input, style_key="hacker"):
     style = STYLES.get(style_key, STYLES["hacker"])
     
     try:
         response = requests.post(
-            "https://api.deepseek.com/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "deepseek-chat",
+                "model": "arcee-ai/trinity-large-preview:free",
                 "messages": [
                     {"role": "system", "content": style["prompt"]},
                     {"role": "user", "content": user_input}
-                ],
-                "temperature": 0.7,
-                "max_tokens": 2000
+                ]
             },
             timeout=30
         )
         
         if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content']
-        else:
-            return f"😵 Ошибка API: {response.status_code}"
-            
+            return response.json()['choices'][0]['message']['content']
+        return f"😵 Ошибка {response.status_code}"
     except Exception as e:
-        return f"⏱️ Ошибка: {str(e)[:100]}"
+        return f"⏱️ Ошибка"
 
 # ===== КОМАНДЫ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     args = context.args
     
-    # Проверяем реферальный код
     referrer = None
     if args and args[0].startswith('ref_'):
         try:
@@ -154,15 +141,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tokens, style, _ = get_user(user.id, user.username, user.first_name, referrer)
     
-    # Убираем старую клавиатуру
-    await update.message.reply_text("⏳ Загружаем меню...", reply_markup=ReplyKeyboardRemove())
-    
     if user.id == CREATOR_ID:
-        text = f"👑 С ВОЗВРАЩЕНИЕМ, {CREATOR_NAME}!\n\n💰 Токены: ∞\n🎭 Твой стиль: ВЛАДЫКА"
+        text = f"👑 С возвращением, создатель!\n💰 Токены: ∞\n🎭 Твой стиль: ВЛАДЫКА"
     else:
-        text = f"👋 Привет, {user.first_name}!\n\n💰 Токены: {tokens}\n🎭 Стиль: {STYLES[style]['name']}"
+        text = f"👋 Привет, {user.first_name}!\n💰 Токены: {tokens}\n🎭 Стиль: {STYLES[style]['name']}"
     
-    await update.message.reply_text(text, reply_markup=get_main_menu())
+    await update.message.reply_text(text, reply_markup=get_main_keyboard())
 
 async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -178,77 +162,51 @@ async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
         await update.message.reply_voice(voice=InputFile(audio_bytes, filename="voice.ogg"))
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)[:100]}")
+    except:
+        await update.message.reply_text("❌ Ошибка")
 
-# ===== ОБРАБОТЧИК МЕНЮ =====
-async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user = update.effective_user
+# ===== ОБРАБОТЧИК КНОПОК =====
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user = query.from_user
     user_id = user.id
     is_creator = (user_id == CREATOR_ID)
     
-    if text == "🏠 Меню":
+    if query.data == "menu":
         tokens, style, _ = get_user(user_id, user.username, user.first_name)
         
         if is_creator:
-            menu_text = f"🏠 ГЛАВНОЕ МЕНЮ\n\n💰 Токены: ∞\n🎭 Твой стиль: ВЛАДЫКА"
+            text = f"🏠 Главное меню\n💰 Токены: ∞\n🎭 Твой стиль: ВЛАДЫКА"
         else:
-            menu_text = f"🏠 ГЛАВНОЕ МЕНЮ\n\n💰 Токены: {tokens}\n🎭 Твой стиль: {STYLES[style]['name']}"
+            text = f"🏠 Главное меню\n💰 Токены: {tokens}\n🎭 Стиль: {STYLES[style]['name']}"
         
-        await update.message.reply_text(menu_text, reply_markup=get_main_menu())
+        await query.edit_message_text(text, reply_markup=get_main_keyboard())
     
-    elif text == "💬 Сообщение":
-        await update.message.reply_text("✍️ Напиши любое сообщение — я отвечу!")
-    
-    elif text == "➕ Новый чат":
-        context.chat_data.clear()
-        await update.message.reply_text("🔄 Новый чат начат!", reply_markup=get_main_menu())
-    
-    elif text == "⚙️ Настройки":
-        await update.message.reply_text("⚙️ Настройки", reply_markup=get_settings_menu())
-    
-    elif text == "💰 Баланс":
+    elif query.data == "balance":
         tokens, _, _ = get_user(user_id)
-        await update.message.reply_text(f"💰 Твой баланс: {tokens} токенов")
+        await query.edit_message_text(f"💰 Баланс: {tokens} токенов", reply_markup=get_main_keyboard())
     
-    elif text == "👥 Рефералы":
+    elif query.data == "referrals":
         referrals = get_referrals_count(user_id)
         ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
-        
-        text = f"👥 РЕФЕРАЛЫ\n\n"
-        text += f"🔗 Твоя ссылка:\n{ref_link}\n\n"
-        text += f"👥 Приглашено друзей: {referrals}\n"
-        text += f"🎁 Бонус за друга: +20 токенов"
-        
-        await update.message.reply_text(text)
+        text = f"👥 Рефералы\n\nСсылка: {ref_link}\nПриглашено: {referrals}\nБонус за друга: +20 токенов"
+        await query.edit_message_text(text, reply_markup=get_main_keyboard())
     
-    # Меню настроек
-    elif text == "🎭 Сменить стиль":
-        await update.message.reply_text("🎭 Выбери стиль:", reply_markup=get_style_menu())
+    elif query.data == "style_menu":
+        await query.edit_message_text("🎭 Выбери стиль:", reply_markup=get_style_keyboard())
     
-    elif text == "🔊 Голос":
-        await update.message.reply_text("🔊 Используй: /voice Привет")
-    
-    elif text == "◀️ Назад":
-        await update.message.reply_text("◀️ Главное меню", reply_markup=get_main_menu())
-    
-    # Выбор стиля
-    elif any(style["name"] == text for style in STYLES.values()):
-        for key, style in STYLES.items():
-            if style["name"] == text:
-                update_user(user_id, style=key)
-                await update.message.reply_text(
-                    f"✅ Стиль: {style['name']}\n\n{style['greeting']}",
-                    reply_markup=get_main_menu()
-                )
-                break
-    
-    else:
-        # Если не кнопка — передаём в AI
-        await handle_message(update, context)
+    elif query.data.startswith("style_"):
+        style_key = query.data.replace("style_", "")
+        if style_key in STYLES:
+            update_user(user_id, style=style_key)
+            await query.edit_message_text(
+                f"✅ Стиль: {STYLES[style_key]['name']}\n\n{STYLES[style_key]['greeting']}",
+                reply_markup=get_main_keyboard()
+            )
 
-# ===== ОСНОВНОЙ ОБРАБОТЧИК =====
+# ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -267,12 +225,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.chat.send_action(action="typing")
     
-    answer = await ask_deepseek(user_input, "lord" if is_creator else style_key)
+    answer = await ask_openrouter(user_input, "lord" if is_creator else style_key)
     
     if not is_creator and tokens != "∞":
         update_user(user_id, tokens=-1)
     
-    await update.message.reply_text(answer, reply_markup=get_main_menu())
+    await update.message.reply_text(answer, reply_markup=get_main_keyboard())
 
 # ===== ЗАПУСК =====
 def main():
@@ -282,9 +240,10 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("voice", voice_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("MonGPT запущен!")
+    print("MonGPT с кнопками и стилями запущен!")
     
     app.run_webhook(
         listen="0.0.0.0",
