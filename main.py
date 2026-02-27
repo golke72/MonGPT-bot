@@ -6,7 +6,13 @@ import json
 import random
 import io
 import asyncio
+import time
+import threading
+import atexit
+import signal
+import sys
 from datetime import datetime, timedelta
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -192,7 +198,7 @@ def analyze_wildberries(url):
         'url': url
     }
 
-# ===== ФУНКЦИЯ ПОИСКА (автоматический) =====
+# ===== ФУНКЦИЯ ПОИСКА =====
 async def search_web(query):
     try:
         with DDGS() as ddgs:
@@ -209,14 +215,11 @@ async def search_web(query):
 
 # ===== ЗАПРОС К OPENROUTER =====
 async def ask_openrouter(user_input, user_name, contains_mat=False, context=None, search_results=None):
-    """Отправляет запрос к OpenRouter с контекстом и результатами поиска"""
     
-    # Формируем промпт в зависимости от наличия мата
     if contains_mat:
         style_prompt = """
         Ты молодёжный AI-помощник. Собеседник использует мат, так что отвечай максимально жёстко, 
         по-пацански, с матом, дерзко, но с юмором. Используй сленг: краш, хайп, рофл, кринж, жиза.
-        Отвечай как реальный пацан с района, который шарит.
         
         **Используй форматирование Telegram:**
         - **жирный** для важных слов
@@ -226,7 +229,7 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
     else:
         style_prompt = """
         Ты молодёжный AI-помощник. Общайся весело, с юмором, используй сленг: краш, хайп, рофл, кринж, жиза.
-        Будь дружелюбным, но с огоньком. Отвечай как классный кореш, который всегда поможет.
+        Будь дружелюбным, но с огоньком.
         
         **Используй форматирование Telegram:**
         - **жирный** для важных слов
@@ -236,13 +239,11 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
     
     messages = [{"role": "system", "content": style_prompt}]
     
-    # Добавляем контекст из памяти
     if context:
         messages.extend(context)
     
-    # Если есть результаты поиска, добавляем их
     if search_results:
-        search_text = "Вот что я нашёл в интернете по этому вопросу:\n\n"
+        search_text = "Вот что я нашёл в интернете:\n\n"
         for i, r in enumerate(search_results, 1):
             search_text += f"{i}. {r['title']}\n   {r['snippet'][:150]}...\n   {r['link']}\n\n"
         messages.append({"role": "system", "content": search_text})
@@ -271,12 +272,6 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
     except Exception as e:
         return f"⏱️ **Ошибка:** {str(e)[:100]}"
 
-# ===== КРАСИВОЕ ОФОРМЛЕНИЕ =====
-def format_message(text, title=None, emoji="💬"):
-    if title:
-        return f"**{emoji} {title}**\n\n{text}"
-    return text
-
 # ===== КНОПКИ =====
 def get_main_keyboard():
     keyboard = [
@@ -298,16 +293,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💬 **Сообщений:** {msgs}\n\n"
         f"**ЧТО Я УМЕЮ:**\n"
         f"🔗 **Ссылки** — кидай любые, я расскажу\n"
-        f"💬 **Вопросы** — просто спрашивай, я найду ответ\n"
+        f"💬 **Вопросы** — просто спрашивай\n"
         f"🧠 **Память** — помню 24 часа\n"
         f"📋 **Меню** — /menu\n\n"
         f"**Погнали!** 🔥"
     )
     
-    await update.message.reply_text(
-        format_message(text, "MonGPT ULTIMATE", "🎮"),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -317,8 +309,7 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📋 **ГЛАВНОЕ МЕНЮ**\n\n"
         f"👤 **Игрок:** {name}\n"
         f"💰 **Монет:** {coins}\n"
-        f"💬 **Сообщений:** {msgs}\n\n"
-        f"Выбери действие:"
+        f"💬 **Сообщений:** {msgs}"
     )
     
     await update.message.reply_text(
@@ -371,7 +362,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"/menu - меню\n\n"
                 f"**Как общаться:**\n"
                 f"• Просто задавай вопросы\n"
-                f"• Кидай ссылки — я расскажу\n"
+                f"• Кидай ссылки\n"
                 f"• Используй мат — подстроюсь"
             )
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
@@ -388,19 +379,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
             return
         
-        else:
-            await query.edit_message_text(
-                f"❓ Неизвестная команда: {query.data}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-            
     except Exception as e:
-        print(f"Ошибка в button_handler: {e}")
-        await query.message.reply_text(
-            "⚠️ Произошла ошибка. Попробуй ещё раз.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        print(f"Ошибка: {e}")
 
 # ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -410,17 +390,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
     
-    # Получаем данные пользователя
     coins, msgs, name = get_user(user.id, user.username, user.first_name)
     update_user(user.id, msg=True)
     
-    # Сохраняем сообщение в память
     save_to_memory(user.id, "user", text)
-    
-    # Получаем контекст из памяти
     context_messages = get_recent_memory(user.id, 5)
     
-    # Проверяем ссылки
     links = extract_links(text)
     if links:
         link_text = "🔗 **Нашёл ссылки!**\n\n"
@@ -450,17 +425,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         
-        # Убираем ссылки из текста для AI
         text = re.sub(r'https?://[^\s]+', '', text)
     
-    # Если после удаления ссылок текст пустой — не отправляем в AI
     if not text.strip():
         return
     
-    # Отправляем статус "печатает"
     await update.message.chat.send_action(action="typing")
     
-    # Проверяем, нужен ли поиск (вопрос или запрос информации)
     search_keywords = ['что', 'как', 'где', 'когда', 'почему', 'сколько', 'кто', 'какой', 'новости', 'последние', 'сейчас']
     needs_search = any(keyword in text.lower() for keyword in search_keywords) or '?' in text
     
@@ -468,16 +439,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if needs_search:
         search_results = await search_web(text)
     
-    # Проверяем мат
     has_mat = contains_profanity(text)
-    
-    # Получаем ответ от AI
     answer = await ask_openrouter(text, name, has_mat, context_messages, search_results)
     
-    # Сохраняем ответ в память
     save_to_memory(user.id, "assistant", answer)
     
-    # Отправляем ответ с цитированием
     await update.message.reply_text(
         answer,
         reply_to_message_id=update.message.message_id,
@@ -498,13 +464,14 @@ def main():
     print("🚀 MonGPT ULTIMATE запущен!")
     print(f"👑 Создатель: @God_Mon1tyy")
     
-    app.run_polling()
+    # Запускаем с обработкой сигналов
+    try:
+        app.run_polling()
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    import threading
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import time
-    
     class HealthCheck(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -523,7 +490,22 @@ if __name__ == "__main__":
         except:
             pass
     
+    # Функция для корректного завершения
+    def signal_handler(sig, frame):
+        print("\n👋 Получен сигнал завершения. Завершаю работу...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Запускаем health-сервер
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
     time.sleep(2)
-    main()
+    
+    # Запускаем бота
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n👋 Бот остановлен")
+        sys.exit(0)
