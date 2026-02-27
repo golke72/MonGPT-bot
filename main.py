@@ -947,12 +947,7 @@ def main():
     print("🎮 MonGPT CASINO запущен!")
     print(f"👑 Создатель: @God_Mon1tyy")
     
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TELEGRAM_TOKEN,
-        webhook_url=f"https://mongpt-bot.onrender.com/{TELEGRAM_TOKEN}"
-    )
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
