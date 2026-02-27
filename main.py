@@ -28,8 +28,8 @@ MAT_ENABLED = True
 # ==========================
 
 # ===== БАЗА ДАННЫХ ДЛЯ ИГР =====
-active_games = {}  # {game_id: game_data}
-challenges = {}    # {challenge_id: challenge_data}
+active_games = {}
+challenges = {}
 
 # ===== КАРТЫ ДЛЯ BLACKJACK =====
 CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -183,7 +183,6 @@ def get_user_rank(messages, is_owner=False):
 
 # ===== ФУНКЦИИ ДЛЯ BLACKJACK =====
 def create_deck():
-    """Создаёт колоду карт"""
     deck = []
     for suit in SUITS:
         for card in CARDS:
@@ -192,18 +191,16 @@ def create_deck():
     return deck
 
 def calculate_hand(hand):
-    """Считает сумму очков на руке"""
     total = 0
     aces = 0
     for card in hand:
-        card_value = card[:-1]  # Убираем масть
+        card_value = card[:-1]
         if card_value == 'A':
             aces += 1
             total += 11
         else:
             total += CARD_VALUES[card_value]
     
-    # Если перебор и есть тузы, уменьшаем их ценность
     while total > 21 and aces > 0:
         total -= 10
         aces -= 1
@@ -211,14 +208,11 @@ def calculate_hand(hand):
     return total
 
 def hand_to_string(hand):
-    """Превращает руку в строку для отображения"""
     return ' '.join(hand)
 
 async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начать игру в BlackJack с ботом"""
     user = update.effective_user
     user_id = user.id
-    is_owner = (user_id == OWNER_ID)
     
     args = context.args
     if not args:
@@ -233,7 +227,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Статистика
     if args[0] == "stats":
         tokens, style, _, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
         total = wins + losses
@@ -250,7 +243,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
         return
     
-    # Принять вызов
     if args[0] == "accept":
         if user_id not in challenges:
             await update.message.reply_text("❌ У тебя нет активных вызовов!")
@@ -259,7 +251,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         challenge = challenges[user_id]
         game_id = f"game_{datetime.now().timestamp()}"
         
-        # Проверяем балансы
         challenger_tokens, _, _, _, _, _, _ = get_user(challenge['from'])
         target_tokens, _, _, _, _, _, _ = get_user(user_id)
         
@@ -273,7 +264,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del challenges[user_id]
             return
         
-        # Создаём игру
         active_games[game_id] = {
             'player1': challenge['from'],
             'player2': user_id,
@@ -281,20 +271,18 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'player1_hand': [],
             'player2_hand': [],
             'deck': create_deck(),
-            'turn': challenge['from'],  # Первым ходит тот, кто вызвал
+            'turn': challenge['from'],
             'player1_stood': False,
             'player2_stood': False,
             'message_id': None,
             'chat_id': update.message.chat_id
         }
         
-        # Раздаём карты
         game = active_games[game_id]
         for _ in range(2):
             game['player1_hand'].append(game['deck'].pop())
             game['player2_hand'].append(game['deck'].pop())
         
-        # Отправляем сообщение
         keyboard = [
             [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
              InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
@@ -316,11 +304,9 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
         game['message_id'] = msg.message_id
         
-        # Удаляем вызов
         del challenges[user_id]
         return
     
-    # Вызов игрока
     if args[0].startswith('@'):
         target_username = args[0]
         if len(args) < 2:
@@ -335,7 +321,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Неверная сумма ставки!")
             return
         
-        # Ищем пользователя по username
         target_id = None
         conn = sqlite3.connect('mongpt.db')
         c = conn.cursor()
@@ -349,21 +334,16 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Пользователь не найден в базе!")
             return
         
-        # Проверяем баланс
         tokens, _, _, _, _, _, _ = get_user(user_id)
         if tokens != "∞" and tokens < bet:
             await update.message.reply_text(f"❌ У тебя недостаточно токенов! Есть {tokens}, нужно {bet}")
             return
         
-        # Создаём вызов
-        challenge_id = f"challenge_{target_id}"
         challenges[target_id] = {
             'from': user_id,
             'bet': bet,
             'time': datetime.now()
         }
-        
-        keyboard = [[InlineKeyboardButton("✅ Принять вызов", callback_data="bj_accept")]]
         
         await update.message.reply_text(
             f"🎮 **ВЫЗОВ ОТПРАВЛЕН!**\n\n"
@@ -386,7 +366,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Не удалось уведомить игрока, но вызов активен.")
     
     else:
-        # Игра с ботом
         try:
             bet = int(args[0])
             if bet <= 0:
@@ -395,20 +374,17 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Неверная сумма ставки!")
             return
         
-        # Проверяем баланс
         tokens, _, _, _, _, _, _ = get_user(user_id)
         if tokens != "∞" and tokens < bet:
             await update.message.reply_text(f"❌ У тебя недостаточно токенов! Есть {tokens}, нужно {bet}")
             return
         
-        # Создаём игру с ботом
         game_id = f"bot_game_{user_id}_{datetime.now().timestamp()}"
         
         deck = create_deck()
         player_hand = []
         bot_hand = []
         
-        # Раздаём карты
         for _ in range(2):
             player_hand.append(deck.pop())
             bot_hand.append(deck.pop())
@@ -424,14 +400,13 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'chat_id': update.message.chat_id
         }
         
-        # Показываем игроку
         keyboard = [
             [InlineKeyboardButton("➕ Взять карту", callback_data=f"bj_hit_{game_id}"),
              InlineKeyboardButton("⏹️ Хватит", callback_data=f"bj_stand_{game_id}")]
         ]
         
         player_score = calculate_hand(player_hand)
-        bot_score = calculate_hand([bot_hand[0]])  # Показываем только первую карту бота
+        bot_score = calculate_hand([bot_hand[0]])
         
         text = (f"🃏 **BLACKJACK**\n\n"
                 f"💰 Ставка: {bet} токенов\n\n"
@@ -444,7 +419,6 @@ async def bj_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         active_games[game_id]['message_id'] = msg.message_id
 
 async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопок BlackJack"""
     query = update.callback_query
     await query.answer()
     
@@ -459,7 +433,6 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     game = active_games[game_id]
     user_id = query.from_user.id
     
-    # Игра с ботом
     if 'bot' in game_id:
         if user_id != game['player']:
             await query.answer("Это не твоя игра!", show_alert=True)
@@ -469,13 +442,11 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         
         if action == 'hit':
-            # Берём карту
             new_card = game['deck'].pop()
             game['player_hand'].append(new_card)
             player_score = calculate_hand(game['player_hand'])
             
             if player_score > 21:
-                # Перебор - проигрыш
                 game['game_over'] = True
                 if game['bet'] != "∞":
                     update_user(user_id, tokens=-game['bet'])
@@ -493,7 +464,6 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 del active_games[game_id]
                 return
             
-            # Обновляем сообщение
             bot_score = calculate_hand([game['bot_hand'][0]])
             text = (f"🃏 **BLACKJACK**\n\n"
                     f"💰 Ставка: {game['bet']} токенов\n\n"
@@ -510,18 +480,15 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
         
         elif action == 'stand':
-            # Ход бота
             game['game_over'] = True
             player_score = calculate_hand(game['player_hand'])
             bot_score = calculate_hand(game['bot_hand'])
             
-            # Бот добирает до 17
             while bot_score < 17:
                 new_card = game['deck'].pop()
                 game['bot_hand'].append(new_card)
                 bot_score = calculate_hand(game['bot_hand'])
             
-            # Определяем победителя
             result_text = ""
             if bot_score > 21 or player_score > bot_score:
                 result_text = "🎉 **ТЫ ВЫИГРАЛ!**"
@@ -535,8 +502,6 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                     update_user(user_id, losses=1)
             else:
                 result_text = "🤝 **НИЧЬЯ!**"
-                if game['bet'] != "∞":
-                    update_user(user_id, wins=0)  # Токены не меняются
             
             text = (f"🃏 **BLACKJACK**\n\n"
                     f"💰 Ставка: {game['bet']} токенов\n\n"
@@ -550,7 +515,6 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             del active_games[game_id]
     
     else:
-        # Игра между игроками
         if user_id not in [game['player1'], game['player2']]:
             await query.answer("Это не твоя игра!", show_alert=True)
             return
@@ -560,17 +524,14 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         
         if action == 'hit':
-            # Берём карту
             if user_id == game['player1']:
                 game['player1_hand'].append(game['deck'].pop())
                 score = calculate_hand(game['player1_hand'])
                 
                 if score > 21:
-                    # Перебор
                     game['player1_stood'] = True
                     game['turn'] = game['player2']
                     
-                    # Проверяем, не закончилась ли игра
                     if game['player2_stood']:
                         await finish_player_game(query, context, game, game_id)
                         return
@@ -581,7 +542,6 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 score = calculate_hand(game['player2_hand'])
                 
                 if score > 21:
-                    # Перебор
                     game['player2_stood'] = True
                     game['turn'] = game['player1']
                     
@@ -591,11 +551,9 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 else:
                     game['turn'] = game['player1']
             
-            # Обновляем отображение
             await update_player_game(query, context, game, game_id)
         
         elif action == 'stand':
-            # Пас
             if user_id == game['player1']:
                 game['player1_stood'] = True
                 game['turn'] = game['player2']
@@ -603,14 +561,12 @@ async def bj_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 game['player2_stood'] = True
                 game['turn'] = game['player1']
             
-            # Проверяем, не закончилась ли игра
             if game['player1_stood'] and game['player2_stood']:
                 await finish_player_game(query, context, game, game_id)
             else:
                 await update_player_game(query, context, game, game_id)
 
 async def update_player_game(query, context, game, game_id):
-    """Обновляет отображение игры между игроками"""
     p1_score = calculate_hand(game['player1_hand'])
     p2_score = calculate_hand(game['player2_hand'])
     
@@ -640,11 +596,9 @@ async def update_player_game(query, context, game, game_id):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
 async def finish_player_game(query, context, game, game_id):
-    """Завершает игру между игроками"""
     p1_score = calculate_hand(game['player1_hand'])
     p2_score = calculate_hand(game['player2_hand'])
     
-    # Определяем победителя
     result_text = ""
     if p1_score > 21:
         result_text = "💔 Игрок 2 победил! (Игрок 1 перебрал)"
@@ -676,7 +630,6 @@ async def finish_player_game(query, context, game, game_id):
             update_user(game['player1'], losses=1)
     else:
         result_text = "🤝 НИЧЬЯ!"
-        # Токены не меняются
     
     text = (f"🃏 **BLACKJACK**\n\n"
             f"💰 Ставка: {game['bet']} токенов\n\n"
@@ -895,10 +848,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💰 `/admin take @user 100` — снять\n"
             "💰 `/admin set @user 9999` — установить\n"
             "👤 `/admin info @user` — инфо о пользователе\n"
-            "👤 `/admin ban @user` — забанить\n"
-            "👤 `/admin unban @user` — разбанить\n"
-            "👑 `/admin vip @user` — сделать VIP\n"
-            "🎭 `/admin style @user hacker` — сменить стиль"
+            "👑 `/admin vip @user` — сделать VIP"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
         return
@@ -943,13 +893,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(user[0], f"📢 **РАССЫЛКА ОТ АДМИНА**\n\n{message}")
                 sent += 1
-                await asyncio.sleep(0.05)  # Чтобы не спамить
+                await asyncio.sleep(0.05)
             except:
                 pass
         
         await update.message.reply_text(f"✅ Отправлено {sent} пользователям")
 
-# ===== ОБРАБОТЧИК КНОПОК =====
+# ===== ОБРАБОТЧИК КНОПОК (ИСПРАВЛЕННЫЙ) =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -958,24 +908,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     
     try:
+        # ===== ГЛАВНОЕ МЕНЮ =====
         if query.data == "menu":
             tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
             text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
             await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== БАЛАНС =====
         elif query.data == "balance":
             tokens, _, _, _, _, _, _ = get_user(user_id)
             await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== РЕФЕРАЛЫ =====
         elif query.data == "referrals":
             referrals = get_referrals_count(user_id)
             ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
-            text = f"👥 **Рефералы**\n\n🔗 **Ссылка:** {ref_link}\n👥 **Приглашено:** {referrals}\n🎁 **Бонус:** +20"
+            text = (f"👥 **Рефералы**\n\n"
+                    f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
+                    f"👥 **Приглашено:** {referrals}\n"
+                    f"🎁 **Бонус за друга:** +20 токенов")
             await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== МЕНЮ СТИЛЕЙ =====
         elif query.data == "style_menu":
             await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== ПРОФИЛЬ =====
         elif query.data == "profile":
             tokens, style_key, msgs, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
             referrals = get_referrals_count(user_id)
@@ -986,7 +948,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             winrate = (wins / total_games * 100) if total_games > 0 else 0
             
             text = (f"👤 **ПРОФИЛЬ**\n"
-                    f"📌 **ID:** {user_id}\n"
+                    f"📌 **ID:** `{user_id}`\n"
                     f"👤 **Имя:** {display_name}\n"
                     f"🏆 **Ранг:** {rank}\n"
                     f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
@@ -997,17 +959,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📊 **Винрейт:** {winrate:.1f}%\n"
                     f"📅 **В боте с:** {join_date}")
             await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== СМЕНА ИМЕНИ =====
         elif query.data == "change_name":
             await query.edit_message_text(
                 "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
+            return
         
+        # ===== МЕНЮ BLACKJACK =====
         elif query.data == "bj_menu":
             await query.edit_message_text("🃏 **BLACKJACK**\n\nВыбери режим игры:", reply_markup=get_bj_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== ИГРА С БОТОМ =====
         elif query.data == "bj_bot":
             await query.edit_message_text(
                 "🃏 **ИГРА С БОТОМ**\n\n"
@@ -1017,7 +985,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
+            return
         
+        # ===== ИГРА С ДРУГОМ =====
         elif query.data == "bj_player":
             await query.edit_message_text(
                 "🃏 **ИГРА С ДРУГОМ**\n\n"
@@ -1027,7 +997,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
+            return
         
+        # ===== СТАТИСТИКА BLACKJACK =====
         elif query.data == "bj_stats":
             _, _, _, _, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
             total = wins + losses
@@ -1041,7 +1013,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🃏 Блэкджеков: {bj_wins}")
             
             await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
+        # ===== ВЫБОР СТИЛЯ =====
         elif query.data.startswith("style_"):
             style_key = query.data.replace("style_", "")
             if style_key in STYLES:
@@ -1051,17 +1025,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_keyboard(),
                     parse_mode=ParseMode.MARKDOWN
                 )
+                return
         
-        elif query.data == "bj_accept":
-            if user_id in challenges:
-                challenge = challenges[user_id]
-                # Автоматически запускаем игру
-                await bj_command(update, context.with_args(["accept"]))
-            else:
-                await query.edit_message_text("❌ Нет активных вызовов!", reply_markup=get_main_keyboard())
+        # ===== НАЗАД В МЕНЮ =====
+        elif query.data == "back_to_menu":
+            tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
+            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
         
     except Exception as e:
-        if "message can't be edited" in str(e) or "message to edit not found" in str(e):
+        # Если сообщение не редактируется
+        if "message can't be edited" in str(e):
             tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
             text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
             await query.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
