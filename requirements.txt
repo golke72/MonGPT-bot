@@ -7,3 +7,4 @@ urllib3==1.26.15
 certifi==2023.7.22
 setuptools==69.5.1
 gTTS==2.5.1
+duckduckgo-search>=7.0.0
