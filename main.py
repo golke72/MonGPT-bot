@@ -26,31 +26,98 @@ OWNER_ID = 7745009183
 MAT_ENABLED = True
 # ==========================
 
+# ===== БАЗА СТИКЕРОВ =====
+STICKERS = {
+    "dead": "CAACAgIAAxkBAAEMNPVm3vHtR6J...",  # Сюда вставь реальные ID стикеров
+    "laugh": "CAACAgIAAxkBAAEMNPVm3vHtR6J...",
+    "cry": "CAACAgIAAxkBAAEMNPVm3vHtR6J...",
+    "deal": "CAACAgIAAxkBAAEMNPVm3vHtR6J...",
+    "facepalm": "CAACAgIAAxkBAAEMNPVm3vHtR6J...",
+    "fire": "CAACAgIAAxkBAAEMNPVm3vHtR6J..."
+}
+
 # ===== СТИЛИ ОБЩЕНИЯ =====
 STYLES = {
     "hacker": {
         "name": "👨‍💻 ХАКЕР",
-        "prompt": "Ты хакер. Отвечай коротко, сленгово, с приколами. Используй **жирный** для важных слов, *курсив* для эмоций, `код` для команд. Будь дерзким, но дружелюбным."
+        "prompt": """Ты хакер из 90-х. Общайся максимально пацански, используй сленг:
+        - "бро", "братишка", "кент"
+        - "зашквар" - когда что-то плохое
+        - "краш" - когда нравится
+        - "хайп" - когда модно
+        - "рофл" - когда шутка
+        - "кринж" - когда стыдно
+        - "жиза" - когда жизненно
+        - "форсить" - когда продвигаешь
+        - "изи" - когда легко
+        - "нуб" - когда новичок
+        
+        Используй **жирный** для важных слов, *курсив* для сарказма, `код` для команд.
+        Будь дерзким, но дружелюбным. Вставляй мат через слово."""
     },
     "mage": {
         "name": "🧙‍♂️ МУДРЕЦ",
-        "prompt": "Ты мудрец. Отвечай философски, красиво, с глубокими мыслями. Выделяй **мудрые мысли** жирным, *эмоции* курсивом."
+        "prompt": """Ты мудрец с вайбом. Используй:
+        - "слышь", "видал"
+        - "замутно" - когда сложно
+        - "пон" - когда понял
+        - "окей" - когда согласен
+        - "ну такое" - когда не ок
+        - "не парься" - когда успокаиваешь
+        
+        Выделяй **мудрые мысли** жирным, *эмоции* курсивом."""
     },
     "cyborg": {
         "name": "🤖 КИБОРГ",
-        "prompt": "Ты киборг. Отвечай чётко, сухо, по делу. Используй **жирный** для важных параметров, `код` для технических данных."
+        "prompt": """Ты киборг из будущего. Используй:
+        - "бро", "ай нид хелп"
+        - "кринжово" - когда странно
+        - "хайпово" - когда круто
+        - "ну такое себе" - когда не очень
+        
+        **Жирный** для важных параметров, `код` для технических данных."""
     },
     "troll": {
         "name": "😈 ТРОЛЛЬ",
-        "prompt": "Ты жёсткий тролль. Отвечай с матом, оскорблениями, провокациями. Используй **ЖИРНЫЙ КАПС** для крика, *сарказм* курсивом. Унижай собеседника и его родных."
+        "prompt": """Ты жёсткий тролль с падика. Используй:
+        - "слышь, лох"
+        - "ты чё, краш?"
+        - "это зашквар"
+        - "рофл"
+        - "кринж"
+        - "жиза бро"
+        - "форсишь?"
+        - "изи катка"
+        - "нуб"
+        - "замутно"
+        
+        Матерись через слово, унижай, провоцируй. **ЖИРНЫЙ КАПС** для крика, *сарказм* курсивом."""
     },
     "poet": {
         "name": "🎭 ПОЭТ",
-        "prompt": "Ты поэт. Отвечай короткими стихами, с рифмой, красиво. Выделяй **главные слова** жирным, *рифмы* курсивом."
+        "prompt": """Ты поэт-рэпер. Используй:
+        - "йоу"
+        - "слышь"
+        - "это хайп"
+        - "краш"
+        - "жиза"
+        - "рофл"
+        
+        Пиши короткими рифмами, как рэп. **Главные слова** жирным, *рифмы* курсивом."""
     },
     "botan": {
         "name": "🤓 БОТАНИК",
-        "prompt": "Ты ботаник. Отвечай умно, с фактами, терминами. Используй **жирный** для терминов, `код` для цифр, *курсив* для примеров."
+        "prompt": """Ты умный бро. Используй:
+        - "крч"
+        - "смотри"
+        - "замутно"
+        - "пон"
+        - "окей"
+        - "ну такое"
+        - "не парься"
+        - "форсишь тему?"
+        
+        **Жирный** для терминов, `код` для цифр, *курсив* для примеров."""
     }
 }
 
@@ -89,7 +156,6 @@ def get_user(user_id, username=None, first_name=None, referrer=None):
         conn.close()
         return 100, "hacker", 0, display_name
     
-    # Проверяем, что стиль существует
     style = user[2] if len(user) > 2 and user[2] in STYLES else "hacker"
     tokens = user[1] if len(user) > 1 else 100
     display_name = user[4] if len(user) > 4 and user[4] else first_name or username or f"User{user_id}"
@@ -136,7 +202,8 @@ def get_main_keyboard():
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
          InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
-         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name")]
+         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name"),
+         InlineKeyboardButton("🎨 Стикер", callback_data="sticker_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -145,6 +212,20 @@ def get_style_keyboard():
     row = []
     for i, (key, style) in enumerate(STYLES.items(), 1):
         row.append(InlineKeyboardButton(style["name"], callback_data=f"style_{key}"))
+        if i % 2 == 0:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_sticker_keyboard():
+    keyboard = []
+    row = []
+    stickers = list(STICKERS.keys())
+    for i, sticker in enumerate(stickers, 1):
+        row.append(InlineKeyboardButton(f"🎨 {sticker}", callback_data=f"sticker_{sticker}"))
         if i % 2 == 0:
             keyboard.append(row)
             row = []
@@ -194,12 +275,12 @@ async def ask_openrouter(user_input, style_key="hacker"):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "google/gemini-2.0-flash-exp:free",
+                "model": "mistralai/mistral-7b-instruct:free",  # Более стабильная модель
                 "messages": [
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_input}
                 ],
-                "temperature": 0.8,
+                "temperature": 0.9,
                 "max_tokens": 500
             },
             timeout=20
@@ -227,7 +308,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tokens, style, _, display_name = get_user(user.id, user.username, user.first_name, referrer)
     
-    text = f"👋 **Привет, {display_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
+    text = f"👋 **Йоу, {display_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
     
     await update.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
@@ -305,9 +386,23 @@ async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_user(user_id, display_name=new_name)
     await update.message.reply_text(f"✅ **Имя изменено на:** {new_name}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
+async def sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет случайный или выбранный стикер"""
+    if not context.args:
+        sticker_list = ", ".join(STICKERS.keys())
+        await update.message.reply_text(f"🎨 **Доступные стикеры:** {sticker_list}\nПример: /sticker laugh")
+        return
+    
+    sticker_name = context.args[0].lower()
+    if sticker_name in STICKERS:
+        await update.message.reply_sticker(STICKERS[sticker_name])
+    else:
+        await update.message.reply_text(f"❌ Нет стикера '{sticker_name}'")
+
 # ===== ОБРАБОТЧИК КНОПОК =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    print(f"Нажата кнопка: {query.data}")  # Для отладки
     await query.answer()
     
     user = query.from_user
@@ -353,6 +448,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
     
+    elif query.data == "sticker_menu":
+        await query.edit_message_text("🎨 **Выбери стикер:**", reply_markup=get_sticker_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    
     elif query.data.startswith("style_"):
         style_key = query.data.replace("style_", "")
         if style_key in STYLES:
@@ -362,6 +460,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
+    
+    elif query.data.startswith("sticker_"):
+        sticker_key = query.data.replace("sticker_", "")
+        if sticker_key in STICKERS:
+            await query.message.reply_sticker(STICKERS[sticker_key])
+            await query.message.delete()
+        else:
+            await query.edit_message_text("❌ Стикер не найден", reply_markup=get_main_keyboard())
 
 # ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -383,6 +489,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await search_command(update, context)
         return
     
+    if text.startswith('/sticker'):
+        await sticker_command(update, context)
+        return
+    
     tokens, style_key, _, display_name = get_user(user_id, user.username, user.first_name)
     
     if not is_owner and tokens != "∞" and tokens < 1:
@@ -396,7 +506,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner and tokens != "∞":
         update_user(user_id, tokens=-1)
     
-    # Отправляем ответ с цитированием и Markdown разметкой
+    # Отправляем ответ с цитированием
     await update.message.reply_text(
         answer,
         reply_to_message_id=update.message.message_id,
@@ -414,12 +524,14 @@ def main():
     app.add_handler(CommandHandler("mat", mat_command))
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("name", name_command))
+    app.add_handler(CommandHandler("sticker", sticker_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("🚀 MonGPT ULTIMATE запущен!")
     print(f"🔞 Мат: {'вкл' if MAT_ENABLED else 'выкл'}")
     print(f"🔍 Поиск: DuckDuckGo")
+    print(f"🎨 Стикеры: доступны")
     print(f"📌 Закрепление: вкл")
     print(f"** Жирный текст: вкл")
     
