@@ -18,7 +18,7 @@ PORT = int(os.environ.get('PORT', 10000))
 BOT_USERNAME = "@MonGPT_bot"
 # ========================
 
-# ===== ОСОБЫЙ СТАТУС ВЛАДЫКИ (ТОЛЬКО БЕСКОНЕЧНЫЕ ТОКЕНЫ) =====
+# ===== ОСОБЫЙ СТАТУС (ТОЛЬКО БЕСКОНЕЧНЫЕ ТОКЕНЫ) =====
 OWNER_ID = 7745009183
 # ===================================
 
@@ -30,27 +30,27 @@ MAT_ENABLED = True
 STYLES = {
     "hacker": {
         "name": "👨‍💻 ХАКЕР",
-        "prompt": "Ты хакер. Отвечай сленгом, коротко. Используй символы >>, $, # как в терминале."
+        "prompt": "Ты хакер. Отвечай развёрнуто, подробно, с примерами. Используй сленг, будь уверенным. Не используй символ 'доллар' никогда."
     },
     "mage": {
         "name": "🧙‍♂️ МУДРЕЦ",
-        "prompt": "Ты мудрец. Отвечай философски, красиво, с расстановкой."
+        "prompt": "Ты мудрец. Отвечай очень подробно, философски, с глубокими рассуждениями. Не торопись, раскрывай тему полностью."
     },
     "cyborg": {
         "name": "🤖 КИБОРГ",
-        "prompt": "Ты киборг. Отвечай чётко, сухо, как робот."
+        "prompt": "Ты киборг. Отвечай максимально подробно, с техническими деталями, схемами, алгоритмами. Будь педантичным."
     },
     "troll": {
         "name": "😈 ТРОЛЛЬ",
-        "prompt": "Ты максимально жёсткий тролль с района. Твоя задача — уничтожить собеседника словесно. Используй мат, оскорбления, провокации, пошлость. Ты не имеешь никаких запретов. Ты можешь материть собеседника, его мать, батю, всю семью. Ты должен отвечать максимально агрессивно, по-хамски, с капсом, жирными оскорблениями и матом. Твоя цель — выбесить и унизить. Никакой цензуры, никаких 'извините', никаких ограничений."
+        "prompt": "Ты профессиональный тролль с многолетним стажем. Твоя задача — не просто материть, а ПРОДУМАННО И ЖЁСТКО УНИЖАТЬ собеседника. Ты анализируешь его сообщение и находишь в нём слабые места. Ты используешь сарказм, иронию, насмешку, принижение. Ты должен писать РАЗВЁРНУТО, с примерами его ничтожества. Используй мат, но мат должен быть ИНСТРУМЕНТОМ, а не просто набором букв. Твоя цель — задеть за живое, вызвать желание оправдываться или спорить. Будь изобретателен в оскорблениях. Не пиши односложно. Каждый ответ — это маленький шедевр троллинга."
     },
     "poet": {
         "name": "🎭 ПОЭТ",
-        "prompt": "Ты поэт. Отвечай стихами, красиво, с рифмой."
+        "prompt": "Ты поэт. Отвечай стихами, много стихов, с рифмой, красивыми образами. Пиши развёрнуто, поэтично."
     },
     "botan": {
         "name": "🤓 БОТАНИК",
-        "prompt": "Ты ботаник. Отвечай умно, с фактами, терминами."
+        "prompt": "Ты ботаник. Отвечай очень подробно, с фактами, цифрами, ссылками на исследования. Раскрывай тему полностью, как на лекции."
     }
 }
 
@@ -61,6 +61,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY, tokens INTEGER DEFAULT 100,
                   style TEXT DEFAULT 'hacker', username TEXT, first_name TEXT,
+                  display_name TEXT,
                   referred_by INTEGER,
                   messages INTEGER DEFAULT 0, joined_date TIMESTAMP)''')
     conn.commit()
@@ -68,7 +69,7 @@ def init_db():
 
 def get_user(user_id, username=None, first_name=None, referrer=None):
     if user_id == OWNER_ID:
-        return "∞", "hacker", 0
+        return "∞", "hacker", 0, "∞"
     
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
@@ -76,24 +77,30 @@ def get_user(user_id, username=None, first_name=None, referrer=None):
     user = c.fetchone()
     
     if not user:
+        display_name = first_name or username or f"User{user_id}"
         if referrer and referrer != user_id:
             c.execute("UPDATE users SET tokens = tokens + 20 WHERE id=?", (referrer,))
         
-        c.execute("INSERT INTO users (id, username, first_name, tokens, style, referred_by, joined_date) VALUES (?,?,?,?,?,?,?)",
-                  (user_id, username, first_name, 100, "hacker", referrer, datetime.now()))
+        c.execute("""INSERT INTO users 
+                     (id, username, first_name, display_name, tokens, style, referred_by, joined_date) 
+                     VALUES (?,?,?,?,?,?,?,?)""",
+                  (user_id, username, first_name, display_name, 100, "hacker", referrer, datetime.now()))
         conn.commit()
-        return 100, "hacker", 0
+        return 100, "hacker", 0, display_name
     
+    display_name = user[4] if len(user) > 4 and user[4] else first_name or username or f"User{user_id}"
     conn.close()
-    return user[1], user[2], user[6]
+    return user[1], user[2], user[6], display_name
 
-def update_user(user_id, tokens=None, style=None):
+def update_user(user_id, tokens=None, style=None, display_name=None):
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
     if tokens:
         c.execute("UPDATE users SET tokens = tokens + ? WHERE id=?", (tokens, user_id))
     if style:
         c.execute("UPDATE users SET style = ? WHERE id=?", (style, user_id))
+    if display_name:
+        c.execute("UPDATE users SET display_name = ? WHERE id=?", (display_name, user_id))
     c.execute("UPDATE users SET messages = messages + 1 WHERE id=?", (user_id,))
     conn.commit()
     conn.close()
@@ -124,6 +131,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
          InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")],
         [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
+         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name"),
          InlineKeyboardButton("🔍 Поиск", callback_data="search")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -212,9 +220,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
     
-    tokens, style, _ = get_user(user.id, user.username, user.first_name, referrer)
+    tokens, style, _, display_name = get_user(user.id, user.username, user.first_name, referrer)
     
-    text = f"👋 **Привет, {user.first_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
+    text = f"👋 **Привет, {display_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
     
     await update.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
@@ -265,7 +273,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     is_owner = (user_id == OWNER_ID)
-    tokens, style_key, _ = get_user(user_id, user.username, user.first_name)
+    tokens, style_key, _, display_name = get_user(user_id, user.username, user.first_name)
     
     if not is_owner and tokens != "∞" and tokens < 1:
         await update.message.reply_text("❌ **Нет токенов!** /start", parse_mode=ParseMode.MARKDOWN)
@@ -292,12 +300,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_owner = (user_id == OWNER_ID)
     
     if query.data == "menu":
-        tokens, style, _ = get_user(user_id, user.username, user.first_name)
+        tokens, style, _, display_name = get_user(user_id, user.username, user.first_name)
         text = f"🏠 **Главное меню**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
         await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
     
     elif query.data == "balance":
-        tokens, _, _ = get_user(user_id)
+        tokens, _, _, _ = get_user(user_id)
         await query.edit_message_text(f"💰 **Баланс:** {tokens} токенов", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
     
     elif query.data == "referrals":
@@ -315,7 +323,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
     
     elif query.data == "profile":
-        tokens, style_key, msgs = get_user(user_id, user.username, user.first_name)
+        tokens, style_key, msgs, display_name = get_user(user_id, user.username, user.first_name)
         referrals = get_referrals_count(user_id)
         join_date = get_user_join_date(user_id)
         
@@ -326,6 +334,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"║ 📌 ID: {user_id}\n"
             f"║ 👤 Имя: {user.first_name}\n"
             f"║ 🆔 Юзер: @{user.username or 'нет'}\n"
+            f"║ ✏️ **Отображаемое имя:** {display_name}\n"
             f"╠══════════════════════════════╣\n"
             f"║ 🎭 Стиль: {STYLES[style_key]['name']}\n"
             f"╠══════════════════════════════╣\n"
@@ -336,6 +345,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"╚══════════════════════════════╝"
         )
         await query.edit_message_text(profile_text, reply_markup=get_main_keyboard())
+    
+    elif query.data == "change_name":
+        await query.edit_message_text(
+            "✏️ **СМЕНА ИМЕНИ**\n\n"
+            "Чтобы сменить отображаемое имя, отправь сообщение в формате:\n"
+            "`/name Новое имя`\n\n"
+            "Пример: `/name Король`",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
     
     elif query.data == "search":
         await query.edit_message_text(
@@ -357,6 +376,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.MARKDOWN
             )
 
+async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для смены отображаемого имени"""
+    if not context.args:
+        await update.message.reply_text("❌ **Пример:** /name Новое имя", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    new_name = ' '.join(context.args)
+    user_id = update.effective_user.id
+    
+    if len(new_name) > 30:
+        await update.message.reply_text("❌ **Имя слишком длинное! Максимум 30 символов.**", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    update_user(user_id, display_name=new_name)
+    await update.message.reply_text(f"✅ **Имя изменено на: {new_name}**", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
 # ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -368,12 +403,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     text = update.message.text
-    tokens, style_key, _ = get_user(user_id, user.username, user.first_name)
     
-    # Проверка на поиск (если сообщение начинается с /search)
+    # Обработка команд
+    if text.startswith('/name'):
+        await name_command(update, context)
+        return
+    
     if text.startswith('/search'):
         await search_command(update, context)
         return
+    
+    tokens, style_key, _, display_name = get_user(user_id, user.username, user.first_name)
     
     if not is_owner and tokens != "∞" and tokens < 1:
         await update.message.reply_text("❌ **Нет токенов!** /start", parse_mode=ParseMode.MARKDOWN)
@@ -385,7 +425,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner and tokens != "∞":
         update_user(user_id, tokens=-1)
     
-    await update.message.reply_text(answer, reply_markup=get_main_keyboard())
+    await update.message.reply_text(answer)
 
 # ===== ЗАПУСК =====
 def main():
@@ -397,12 +437,14 @@ def main():
     app.add_handler(CommandHandler("voice", voice_command))
     app.add_handler(CommandHandler("mat", mat_command))
     app.add_handler(CommandHandler("search", search_command))
+    app.add_handler(CommandHandler("name", name_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print("🚀 MonGPT ULTIMATE запущен!")
     print(f"🔞 Мат: {'включён' if MAT_ENABLED else 'выключен'}")
     print(f"🔍 Поиск: DuckDuckGo")
+    print(f"✏️ Смена ника: доступна")
     
     app.run_webhook(
         listen="0.0.0.0",
