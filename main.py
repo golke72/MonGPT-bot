@@ -1,7 +1,9 @@
 import sqlite3
 import os
 import random
-import asyncio
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -133,13 +135,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if command not in allowed_commands:
         return
     
-    # Баланс
+    # ===== БАЛАНС =====
     if text == 'б':
         coins, _, _, _, _, name = get_user(user.id)
         await update.message.reply_text(f"💰 **{name}, твой баланс:** {coins} монет")
         return
     
-    # Топ
+    # ===== ТОП =====
     if text == 'топ':
         conn = sqlite3.connect('mongpt.db')
         c = conn.cursor()
@@ -160,7 +162,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(result)
         return
     
-    # Перевод монет
+    # ===== ПЕРЕВОД МОНЕТ =====
     if command == 'дать':
         replied = update.message.reply_to_message
         if not replied:
@@ -205,11 +207,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     
-    # ===== АДМИН-КОМАНДЫ =====
+    # ===== ДУЭЛЬ (кости) =====
+    if command == 'дуэль':
+        replied = update.message.reply_to_message
+        if not replied:
+            await update.message.reply_text("❌ Ответь на сообщение друга, чтобы вызвать его на дуэль!")
+            return
+        
+        opponent = replied.from_user
+        
+        if opponent.id == user.id:
+            await update.message.reply_text("❌ Нельзя вызывать самого себя!")
+            return
+        
+        if opponent.is_bot:
+            await update.message.reply_text("❌ С ботами не дуэлимся!")
+            return
+        
+        parts = text.split()
+        if len(parts) != 2:
+            await update.message.reply_text("❌ дуэль [ставка]\nПример: дуэль 50")
+            return
+        
+        try:
+            bet = int(parts[1])
+            if bet <= 0:
+                raise ValueError
+        except:
+            await update.message.reply_text("❌ Неверная ставка")
+            return
+        
+        # Проверяем балансы
+        user_coins, _, _, _, user_vip, user_name = get_user(user.id)
+        opp_coins, _, _, _, opp_vip, opp_name = get_user(opponent.id)
+        
+        if not user_vip and user_coins < bet:
+            await update.message.reply_text(f"❌ У тебя только {user_coins} монет")
+            return
+        
+        if not opp_vip and opp_coins < bet:
+            await update.message.reply_text(f"❌ У {opp_name} только {opp_coins} монет")
+            return
+        
+        # Создаём вызов
+        challenge_id = f"duel_{user.id}_{opponent.id}_{datetime.now().timestamp()}"
+        
+        duel_challenges[challenge_id] = {
+            'challenger': user.id,
+            'opponent': opponent.id,
+            'bet': bet,
+            'type': 'duel'
+        }
+        
+        keyboard = [[
+            InlineKeyboardButton("✅ Принять", callback_data=f"accept_duel_{challenge_id}"),
+            InlineKeyboardButton("❌ Отклонить", callback_data=f"decline_duel_{challenge_id}")
+        ]]
+        
+        await context.bot.send_message(
+            opponent.id,
+            f"⚔️ **ТЕБЯ ВЫЗЫВАЮТ НА ДУЭЛЬ!**\n\n"
+            f"👤 Противник: {user_name}\n"
+            f"💰 Ставка: {bet}\n\n"
+            f"У тебя 2 минуты, чтобы принять!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        await update.message.reply_text(
+            f"⚔️ **ВЫЗОВ ОТПРАВЛЕН!**\n\n"
+            f"👤 Противник: {opp_name}\n"
+            f"💰 Ставка: {bet}\n\n"
+            f"⏳ Ожидание ответа..."
+        )
+        return
+    
+    # ===== АДМИН-КОМАНДЫ (только для OWNER_ID) =====
     if user.id != OWNER_ID:
         return
     
-    # Выдать монеты
+    # ВЫДАТЬ МОНЕТЫ
     if command == 'выдать':
         replied = update.message.reply_to_message
         if not replied:
@@ -243,7 +319,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     
-    # Снять монеты
+    # СНЯТЬ МОНЕТЫ
     if command == 'снять':
         replied = update.message.reply_to_message
         if not replied:
@@ -274,7 +350,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Снято {amount} монет у {target.first_name}")
         return
     
-    # Сделать VIP
+    # СДЕЛАТЬ VIP
     if command == 'vip':
         replied = update.message.reply_to_message
         if not replied:
@@ -294,7 +370,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     
-    # Убрать VIP
+    # УБРАТЬ VIP
     if command == 'unvip':
         replied = update.message.reply_to_message
         if not replied:
@@ -306,7 +382,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ У {target.first_name} убран VIP")
         return
     
-    # Информация об игроке
+    # ИНФОРМАЦИЯ
     if command == 'инфо':
         replied = update.message.reply_to_message
         if not replied:
@@ -334,91 +410,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
         return
 
-# ===== КОМАНДА ДУЭЛЬ =====
-async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Вызов на дуэль (кости)"""
-    user = update.effective_user
-    text = update.message.text.lower().strip()
-    
-    replied = update.message.reply_to_message
-    if not replied:
-        await update.message.reply_text("❌ Ответь на сообщение друга, чтобы вызвать его на дуэль!")
-        return
-    
-    opponent = replied.from_user
-    
-    if opponent.id == user.id:
-        await update.message.reply_text("❌ Нельзя вызывать самого себя!")
-        return
-    
-    if opponent.is_bot:
-        await update.message.reply_text("❌ С ботами не дуэлимся!")
-        return
-    
-    parts = text.split()
-    if len(parts) != 2:
-        await update.message.reply_text("❌ дуэль [ставка]\nПример: дуэль 50")
-        return
-    
-    try:
-        bet = int(parts[1])
-        if bet <= 0:
-            raise ValueError
-    except:
-        await update.message.reply_text("❌ Неверная ставка")
-        return
-    
-    # Проверяем балансы
-    user_coins, _, _, _, user_vip, user_name = get_user(user.id)
-    opp_coins, _, _, _, opp_vip, opp_name = get_user(opponent.id)
-    
-    if not user_vip and user_coins < bet:
-        await update.message.reply_text(f"❌ У тебя только {user_coins} монет")
-        return
-    
-    if not opp_vip and opp_coins < bet:
-        await update.message.reply_text(f"❌ У {opp_name} только {opp_coins} монет")
-        return
-    
-    # Создаём вызов
-    challenge_id = f"duel_{user.id}_{opponent.id}_{datetime.now().timestamp()}"
-    
-    duel_challenges[challenge_id] = {
-        'challenger': user.id,
-        'opponent': opponent.id,
-        'bet': bet,
-        'expires': datetime.now() + timedelta(minutes=2)
-    }
-    
-    keyboard = [[
-        InlineKeyboardButton("✅ Принять", callback_data=f"accept_duel_{challenge_id}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"decline_duel_{challenge_id}")
-    ]]
-    
-    await update.message.reply_text(
-        f"⚔️ **ВЫЗОВ НА ДУЭЛЬ!**\n\n"
-        f"👤 От: {user_name}\n"
-        f"👤 Кому: {opp_name}\n"
-        f"💰 Ставка: {bet}\n\n"
-        f"⏳ У противника 2 минуты!"
-    )
-    
-    await context.bot.send_message(
-        opponent.id,
-        f"⚔️ **ТЕБЯ ВЫЗЫВАЮТ НА ДУЭЛЬ!**\n\n"
-        f"👤 Противник: {user_name}\n"
-        f"💰 Ставка: {bet}\n\n"
-        f"У тебя 2 минуты, чтобы принять!",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
 # ===== КОМАНДА 21 =====
 async def twenty_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для игры в 21"""
     user = update.effective_user
     
     if not update.message.reply_to_message:
-        await update.message.reply_text("❌ Ответь на сообщение друга, чтобы сыграть в 21!")
+        await update.message.reply_text(
+            "❌ **Ответь на сообщение друга, чтобы сыграть в 21!**\n"
+            "Пример: ответь на его сообщение и напиши /21 50"
+        )
         return
     
     opponent = update.message.reply_to_message.from_user
@@ -458,25 +459,16 @@ async def twenty_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
     challenge_id = f"bj_{user.id}_{opponent.id}_{datetime.now().timestamp()}"
     
     duel_challenges[challenge_id] = {
-        'type': 'bj',
         'challenger': user.id,
         'opponent': opponent.id,
         'bet': bet,
-        'expires': datetime.now() + timedelta(minutes=2)
+        'type': 'bj'
     }
     
     keyboard = [[
         InlineKeyboardButton("✅ Принять", callback_data=f"accept_bj_{challenge_id}"),
         InlineKeyboardButton("❌ Отклонить", callback_data=f"decline_bj_{challenge_id}")
     ]]
-    
-    await update.message.reply_text(
-        f"🃏 **ВЫЗОВ НА 21!**\n\n"
-        f"👤 От: {user_name}\n"
-        f"👤 Кому: {opp_name}\n"
-        f"💰 Ставка: {bet}\n\n"
-        f"⏳ У противника 2 минуты!"
-    )
     
     await context.bot.send_message(
         opponent.id,
@@ -485,6 +477,13 @@ async def twenty_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💰 Ставка: {bet}\n\n"
         f"У тебя 2 минуты, чтобы принять!",
         reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    
+    await update.message.reply_text(
+        f"🃏 **ВЫЗОВ ОТПРАВЛЕН!**\n\n"
+        f"👤 Противник: {opp_name}\n"
+        f"💰 Ставка: {bet}\n\n"
+        f"⏳ Ожидание ответа..."
     )
 
 # ===== ОБРАБОТЧИК КНОПОК =====
@@ -732,10 +731,8 @@ async def twenty_one_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             opp_id,
             f"🃏 **21 (БЛЭКДЖЕК)**\n\n"
             f"💰 Ставка: {game['bet']}\n\n"
-            f"👤 **{ (await context.bot.get_chat(my_id)).first_name }**:\n"
-            f"Карты: {hand_to_string(game['hand1'] if opp_id == game['player2'] else game['hand2'])}\n\n"
             f"👤 **Ты**:\n"
-            f"Карты: {hand_to_string([game['hand2'][0] if opp_id == game['player2'] else game['hand1'][0], '🂠'])}\n\n"
+            f"Карты: {hand_to_string([opp_hand[0], '🂠'])}\n"
             f"🎮 Твой ход!",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -752,21 +749,21 @@ async def twenty_one_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             p1_score = calculate_hand(game['hand1'])
             p2_score = calculate_hand(game['hand2'])
             
+            p1_name = (await context.bot.get_chat(game['player1'])).first_name
+            p2_name = (await context.bot.get_chat(game['player2'])).first_name
+            p1_hand = hand_to_string(game['hand1'])
+            p2_hand = hand_to_string(game['hand2'])
+            
             if p1_score > p2_score:
                 update_user(game['player1'], coins=game['bet'], win=True, bj_win=True)
                 update_user(game['player2'], coins=-game['bet'], loss=True)
-                result = f"🎉 **{ (await context.bot.get_chat(game['player1'])).first_name } ВЫИГРАЛ!** +{game['bet']} монет"
+                result = f"🎉 **{p1_name} ВЫИГРАЛ!** +{game['bet']} монет"
             elif p2_score > p1_score:
                 update_user(game['player1'], coins=-game['bet'], loss=True)
                 update_user(game['player2'], coins=game['bet'], win=True, bj_win=True)
-                result = f"🎉 **{ (await context.bot.get_chat(game['player2'])).first_name } ВЫИГРАЛ!** +{game['bet']} монет"
+                result = f"🎉 **{p2_name} ВЫИГРАЛ!** +{game['bet']} монет"
             else:
                 result = f"🤝 **НИЧЬЯ!**"
-            
-            p1_hand = hand_to_string(game['hand1'])
-            p2_hand = hand_to_string(game['hand2'])
-            p1_name = (await context.bot.get_chat(game['player1'])).first_name
-            p2_name = (await context.bot.get_chat(game['player2'])).first_name
             
             await context.bot.send_message(
                 game['player1'],
@@ -947,7 +944,37 @@ def main():
     print("🎮 MonGPT CASINO запущен!")
     print(f"👑 Создатель: @God_Mon1tyy")
     
+    # Используем polling вместо webhook
     app.run_polling()
 
 if __name__ == "__main__":
+    # Простой HTTP-сервер для Render (чтобы видел открытый порт)
+    class HealthCheck(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'MonGPT Bot is running!')
+        
+        def log_message(self, format, *args):
+            pass  # Не логируем каждый запрос
+    
+    def run_health_server():
+        try:
+            server = HTTPServer(('0.0.0.0', PORT), HealthCheck)
+            print(f"✅ Health server running on port {PORT}")
+            server.serve_forever()
+        except Exception as e:
+            print(f"⚠️ Health server error: {e}")
+            time.sleep(5)
+            run_health_server()
+    
+    # Запускаем health-сервер в отдельном потоке
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    
+    # Даём серверу время запуститься
+    time.sleep(2)
+    
+    # Запускаем бота
     main()
