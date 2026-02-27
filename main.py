@@ -27,11 +27,11 @@ from telegram.constants import ParseMode
 from gtts import gTTS
 
 # ===== ТВОИ ДАННЫЕ =====
-TELEGRAM_TOKEN = "8735549741:AAFt4ydTV5BFGhVv_iKKJbO3TxfefbIpEc0"
-OPENROUTER_KEY = "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"
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+OPENROUTER_KEY = os.environ.get('OPENROUTER_KEY')
 PORT = int(os.environ.get('PORT', 10000))
 BOT_USERNAME = "@MonGPT_bot"
-# ========================
+# ==========================
 
 # ===== ОСОБЫЙ СТАТУС СОЗДАТЕЛЯ =====
 CREATOR_ID = 7745009183
