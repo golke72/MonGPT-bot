@@ -644,6 +644,101 @@ async def finish_player_game(query, context, game, game_id):
     await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
     del active_games[game_id]
 
+# ===== КНОПКИ =====
+def get_main_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("🏠 Меню", callback_data="menu"),
+         InlineKeyboardButton("💰 Баланс", callback_data="balance")],
+        [InlineKeyboardButton("👥 Рефералы", callback_data="referrals"),
+         InlineKeyboardButton("🎭 Стиль", callback_data="style_menu")],
+        [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
+         InlineKeyboardButton("✏️ Сменить ник", callback_data="change_name"),
+         InlineKeyboardButton("🃏 BlackJack", callback_data="bj_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_style_keyboard():
+    keyboard = []
+    row = []
+    for i, (key, style) in enumerate(STYLES.items(), 1):
+        row.append(InlineKeyboardButton(style["name"], callback_data=f"style_{key}"))
+        if i % 2 == 0:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="menu")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_bj_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("🤖 Играть с ботом", callback_data="bj_bot"),
+         InlineKeyboardButton("👥 Играть с другом", callback_data="bj_player")],
+        [InlineKeyboardButton("📊 Моя статистика", callback_data="bj_stats"),
+         InlineKeyboardButton("◀️ Назад", callback_data="menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# ===== ФУНКЦИЯ ПОИСКА =====
+async def search_web(query):
+    try:
+        with DDGS() as ddgs:
+            results = []
+            for r in ddgs.text(query, max_results=3):
+                results.append({
+                    'title': r.get('title', ''),
+                    'link': r.get('href', ''),
+                    'snippet': r.get('body', '')
+                })
+            
+            if not results:
+                return None
+            
+            reply = f"🔍 **Результаты по запросу:**\n\n"
+            for i, r in enumerate(results, 1):
+                reply += f"{i}. **{r['title']}**\n"
+                reply += f"   {r['snippet'][:100]}...\n"
+                reply += f"   🔗 {r['link']}\n\n"
+            
+            return reply
+    except Exception as e:
+        return None
+
+# ===== ЗАПРОС К OPENROUTER =====
+async def ask_openrouter(user_input, style_key="hacker"):
+    style = STYLES.get(style_key, STYLES["hacker"])
+    
+    prompt = style["prompt"]
+    if not MAT_ENABLED and style_key == "troll":
+        prompt = "Ты вежливый помощник. Отвечай прилично, без мата."
+    
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "google/gemini-2.0-flash-exp:free",
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                "temperature": 0.9,
+                "max_tokens": 500
+            },
+            timeout=20
+        )
+        
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        return f"😵 Ошибка {response.status_code}"
+    except requests.exceptions.Timeout:
+        return "⏱️ Слишком долго, попробуй ещё"
+    except Exception as e:
+        return f"⏱️ Ошибка"
+
 # ===== КОМАНДЫ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -658,85 +753,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tokens, style, _, display_name, _, _, _ = get_user(user.id, user.username, user.first_name, referrer)
     
-    text = (f"👋 **Йоу, {display_name}!**\n"
-            f"💰 **Токены:** {tokens}\n"
-            f"🎭 **Стиль:** {STYLES[style]['name']}\n\n"
-            f"📋 **Доступные команды:**\n"
-            f"/start — это меню\n"
-            f"/style — выбрать стиль\n"
-            f"/balance — баланс\n"
-            f"/profile — профиль\n"
-            f"/referrals — рефералы\n"
-            f"/name — сменить имя\n"
-            f"/bj — BlackJack\n"
-            f"/search — поиск\n"
-            f"/voice — голосовое\n"
-            f"/mat — управление матом")
+    text = f"👋 **Йоу, {display_name}!**\n💰 **Токены:** {tokens}\n🎭 **Стиль:** {STYLES[style]['name']}"
     
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-
-async def style_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = "🎭 **Выбери стиль:**\n\n"
-    for key, style in STYLES.items():
-        text += f"`/style {key}` — {style['name']}\n"
-    text += "\nПример: `/style troll`"
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-
-async def style_set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("❌ Укажи стиль!\nПример: `/style troll`")
-        return
-    
-    style_key = context.args[0].lower()
-    if style_key in STYLES:
-        update_user(user_id, style=style_key)
-        await update.message.reply_text(f"✅ **Стиль изменён на {STYLES[style_key]['name']}**")
-    else:
-        await update.message.reply_text("❌ Неверный стиль! Доступны: hacker, mage, cyborg, troll, poet, botan")
-
-async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    tokens, _, _, _, _, _, _ = get_user(user_id)
-    await update.message.reply_text(f"💰 **Твой баланс:** {tokens} токенов")
-
-async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_id = user.id
-    tokens, style_key, msgs, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
-    referrals = get_referrals_count(user_id)
-    join_date = get_user_join_date(user_id)
-    rank = get_user_rank(msgs, user_id == OWNER_ID)
-    
-    total_games = wins + losses
-    winrate = (wins / total_games * 100) if total_games > 0 else 0
-    
-    text = (f"👤 **ПРОФИЛЬ**\n"
-            f"📌 **ID:** `{user_id}`\n"
-            f"👤 **Имя:** {display_name}\n"
-            f"🏆 **Ранг:** {rank}\n"
-            f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
-            f"💰 **Токены:** {tokens}\n"
-            f"💬 **Сообщений:** {msgs}\n"
-            f"👥 **Рефералов:** {referrals}\n"
-            f"🃏 **BlackJack:** {wins} побед / {losses} поражений\n"
-            f"📊 **Винрейт:** {winrate:.1f}%\n"
-            f"📅 **В боте с:** {join_date}")
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-
-async def referrals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    referrals = get_referrals_count(user_id)
-    ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
-    
-    text = (f"👥 **РЕФЕРАЛЫ**\n\n"
-            f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
-            f"👥 **Приглашено:** {referrals}\n"
-            f"🎁 **Бонус за друга:** +20 токенов")
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -810,7 +829,7 @@ async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     update_user(user_id, display_name=new_name)
-    await update.message.reply_text(f"✅ **Имя изменено на:** {new_name}", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(f"✅ **Имя изменено на:** {new_name}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 # ===== АДМИН-КОМАНДЫ (ТОЛЬКО ДЛЯ ТЕБЯ) =====
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -880,7 +899,144 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(f"✅ Отправлено {sent} пользователям")
 
-# ===== ОБРАБОТЧИК СООБЩЕНИЙ =====
+# ===== ОБРАБОТЧИК КНОПОК =====
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user = query.from_user
+    user_id = user.id
+    
+    try:
+        # МЕНЮ
+        if query.data == "menu":
+            tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
+            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # БАЛАНС
+        if query.data == "balance":
+            tokens, _, _, _, _, _, _ = get_user(user_id)
+            await query.edit_message_text(f"💰 **Баланс:** {tokens}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # РЕФЕРАЛЫ
+        if query.data == "referrals":
+            referrals = get_referrals_count(user_id)
+            ref_link = f"https://t.me/{BOT_USERNAME[1:]}?start=ref_{user_id}"
+            text = (f"👥 **Рефералы**\n\n"
+                    f"🔗 **Твоя ссылка:**\n`{ref_link}`\n\n"
+                    f"👥 **Приглашено:** {referrals}\n"
+                    f"🎁 **Бонус за друга:** +20 токенов")
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # МЕНЮ СТИЛЕЙ
+        if query.data == "style_menu":
+            await query.edit_message_text("🎭 **Выбери стиль:**", reply_markup=get_style_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # ПРОФИЛЬ
+        if query.data == "profile":
+            tokens, style_key, msgs, display_name, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
+            referrals = get_referrals_count(user_id)
+            join_date = get_user_join_date(user_id)
+            rank = get_user_rank(msgs, user_id == OWNER_ID)
+            
+            total_games = wins + losses
+            winrate = (wins / total_games * 100) if total_games > 0 else 0
+            
+            text = (f"👤 **ПРОФИЛЬ**\n"
+                    f"📌 **ID:** `{user_id}`\n"
+                    f"👤 **Имя:** {display_name}\n"
+                    f"🏆 **Ранг:** {rank}\n"
+                    f"🎭 **Стиль:** {STYLES[style_key]['name']}\n"
+                    f"💰 **Токены:** {tokens}\n"
+                    f"💬 **Сообщений:** {msgs}\n"
+                    f"👥 **Рефералов:** {referrals}\n"
+                    f"🃏 **BlackJack:** {wins} побед / {losses} поражений\n"
+                    f"📊 **Винрейт:** {winrate:.1f}%\n"
+                    f"📅 **В боте с:** {join_date}")
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # СМЕНА ИМЕНИ
+        if query.data == "change_name":
+            await query.edit_message_text(
+                "✏️ **Смена имени**\n\nОтправь:\n`/name Новое имя`",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # МЕНЮ BLACKJACK
+        if query.data == "bj_menu":
+            await query.edit_message_text("🃏 **BLACKJACK**\n\nВыбери режим игры:", reply_markup=get_bj_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # ИГРА С БОТОМ
+        if query.data == "bj_bot":
+            await query.edit_message_text(
+                "🃏 **ИГРА С БОТОМ**\n\n"
+                "Используй команду:\n"
+                "`/bj [сумма]` — начать игру с ботом\n\n"
+                "Пример: `/bj 100`",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # ИГРА С ДРУГОМ
+        if query.data == "bj_player":
+            await query.edit_message_text(
+                "🃏 **ИГРА С ДРУГОМ**\n\n"
+                "Используй команду:\n"
+                "`/bj @user [сумма]` — вызвать игрока\n\n"
+                "Пример: `/bj @durov 100`",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        # СТАТИСТИКА BLACKJACK
+        if query.data == "bj_stats":
+            _, _, _, _, wins, losses, bj_wins = get_user(user_id, user.username, user.first_name)
+            total = wins + losses
+            winrate = (wins / total * 100) if total > 0 else 0
+            
+            text = (f"📊 **ТВОЯ СТАТИСТИКА BLACKJACK**\n\n"
+                    f"🏆 Побед: {wins}\n"
+                    f"💔 Поражений: {losses}\n"
+                    f"📈 Всего игр: {total}\n"
+                    f"🎯 Винрейт: {winrate:.1f}%\n"
+                    f"🃏 Блэкджеков: {bj_wins}")
+            
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # ВЫБОР СТИЛЯ
+        if query.data.startswith("style_"):
+            style_key = query.data.replace("style_", "")
+            if style_key in STYLES:
+                update_user(user_id, style=style_key)
+                await query.edit_message_text(
+                    f"✅ **Стиль: {STYLES[style_key]['name']}**",
+                    reply_markup=get_main_keyboard(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+        
+    except Exception as e:
+        # Если сообщение нельзя отредактировать
+        if "message can't be edited" in str(e):
+            tokens, style, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
+            text = f"🏠 **Меню**\n💰 **{tokens}**\n🎭 **{STYLES[style]['name']}**"
+            await query.message.reply_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        else:
+            print(f"Ошибка: {e}")
+
+# ===== ОСНОВНОЙ ОБРАБОТЧИК =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -892,8 +1048,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = update.message.text
     
-    if text.startswith('/'):
-        return  # Команды обрабатываются отдельно
+    if text.startswith('/name'):
+        await name_command(update, context)
+        return
+    
+    if text.startswith('/search'):
+        await search_command(update, context)
+        return
+    
+    if text.startswith('/bj'):
+        await bj_command(update, context)
+        return
+    
+    if text.startswith('/admin'):
+        await admin_command(update, context)
+        return
     
     tokens, style_key, _, display_name, _, _, _ = get_user(user_id, user.username, user.first_name)
     
@@ -967,11 +1136,6 @@ def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("style", style_command))
-    app.add_handler(CommandHandler(["style_hacker", "style_mage", "style_cyborg", "style_troll", "style_poet", "style_botan"], style_set_command))
-    app.add_handler(CommandHandler("balance", balance_command))
-    app.add_handler(CommandHandler("profile", profile_command))
-    app.add_handler(CommandHandler("referrals", referrals_command))
     app.add_handler(CommandHandler("voice", voice_command))
     app.add_handler(CommandHandler("mat", mat_command))
     app.add_handler(CommandHandler("search", search_command))
@@ -979,11 +1143,14 @@ def main():
     app.add_handler(CommandHandler("bj", bj_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CallbackQueryHandler(bj_callback_handler, pattern="^bj_"))
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🚀 MonGPT ULTIMATE запущен (без кнопок)!")
+    print("🚀 MonGPT ULTIMATE с кнопками запущен!")
     print(f"🔞 Мат: {'вкл' if MAT_ENABLED else 'выкл'}")
-    print(f"👑 Админ: @God_Mon1tyy")
+    print(f"🔍 Поиск: DuckDuckGo")
+    print(f"🃏 BlackJack: доступен")
+    print(f"👑 Админ-панель: доступна для @God_Mon1tyy")
     
     app.run_webhook(
         listen="0.0.0.0",
