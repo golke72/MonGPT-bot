@@ -89,7 +89,6 @@ def update_user(user_id, coins=None, msg=None):
     conn.close()
 
 def cleanup_old_memory():
-    """Удаляет записи старше 24 часов"""
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
     cutoff = datetime.now() - timedelta(hours=24)
@@ -98,7 +97,6 @@ def cleanup_old_memory():
     conn.close()
 
 def save_to_memory(user_id, role, content):
-    """Сохраняет сообщение в память"""
     cleanup_old_memory()
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
@@ -108,7 +106,6 @@ def save_to_memory(user_id, role, content):
     conn.close()
 
 def get_recent_memory(user_id, limit=10):
-    """Получает последние сообщения из памяти"""
     cleanup_old_memory()
     conn = sqlite3.connect('mongpt.db')
     c = conn.cursor()
@@ -195,12 +192,12 @@ def analyze_wildberries(url):
         'url': url
     }
 
-# ===== ФУНКЦИЯ ПОИСКА =====
+# ===== ФУНКЦИЯ ПОИСКА (автоматический) =====
 async def search_web(query):
     try:
         with DDGS() as ddgs:
             results = []
-            for r in ddgs.text(query, max_results=5):
+            for r in ddgs.text(query, max_results=3):
                 results.append({
                     'title': r.get('title', ''),
                     'link': r.get('href', ''),
@@ -211,9 +208,10 @@ async def search_web(query):
         return None
 
 # ===== ЗАПРОС К OPENROUTER =====
-async def ask_openrouter(user_input, user_name, contains_mat=False, context=None):
-    """Отправляет запрос к OpenRouter с контекстом"""
+async def ask_openrouter(user_input, user_name, contains_mat=False, context=None, search_results=None):
+    """Отправляет запрос к OpenRouter с контекстом и результатами поиска"""
     
+    # Формируем промпт в зависимости от наличия мата
     if contains_mat:
         style_prompt = """
         Ты молодёжный AI-помощник. Собеседник использует мат, так что отвечай максимально жёстко, 
@@ -238,8 +236,16 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
     
     messages = [{"role": "system", "content": style_prompt}]
     
+    # Добавляем контекст из памяти
     if context:
         messages.extend(context)
+    
+    # Если есть результаты поиска, добавляем их
+    if search_results:
+        search_text = "Вот что я нашёл в интернете по этому вопросу:\n\n"
+        for i, r in enumerate(search_results, 1):
+            search_text += f"{i}. {r['title']}\n   {r['snippet'][:150]}...\n   {r['link']}\n\n"
+        messages.append({"role": "system", "content": search_text})
     
     messages.append({"role": "user", "content": user_input})
     
@@ -254,7 +260,7 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
                 "model": "google/gemini-2.0-flash-exp:free",
                 "messages": messages,
                 "temperature": 0.9,
-                "max_tokens": 1000
+                "max_tokens": 1500
             },
             timeout=30
         )
@@ -267,19 +273,17 @@ async def ask_openrouter(user_input, user_name, contains_mat=False, context=None
 
 # ===== КРАСИВОЕ ОФОРМЛЕНИЕ =====
 def format_message(text, title=None, emoji="💬"):
-    """Форматирует сообщение с рамкой"""
     if title:
         return f"**{emoji} {title}**\n\n{text}"
     return text
 
 # ===== КНОПКИ =====
 def get_main_keyboard():
-    """Кнопки главного меню"""
     keyboard = [
-        [InlineKeyboardButton("🔍 Поиск", callback_data="search"),
-         InlineKeyboardButton("💰 Баланс", callback_data="balance")],
-        [InlineKeyboardButton("👤 Профиль", callback_data="profile"),
-         InlineKeyboardButton("❓ Помощь", callback_data="help")]
+        [InlineKeyboardButton("💰 Баланс", callback_data="balance"),
+         InlineKeyboardButton("👤 Профиль", callback_data="profile")],
+        [InlineKeyboardButton("❓ Помощь", callback_data="help"),
+         InlineKeyboardButton("📋 Меню", callback_data="menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -294,8 +298,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💬 **Сообщений:** {msgs}\n\n"
         f"**ЧТО Я УМЕЮ:**\n"
         f"🔗 **Ссылки** — кидай любые, я расскажу\n"
-        f"🔍 **Поиск** — /search [запрос]\n"
-        f"💬 **Общение** — просто пиши, я запоминаю\n"
+        f"💬 **Вопросы** — просто спрашивай, я найду ответ\n"
+        f"🧠 **Память** — помню 24 часа\n"
         f"📋 **Меню** — /menu\n\n"
         f"**Погнали!** 🔥"
     )
@@ -306,7 +310,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает меню с кнопками"""
     user = update.effective_user
     coins, msgs, name = get_user(user.id)
     
@@ -324,32 +327,6 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Поиск в интернете"""
-    if not context.args:
-        await update.message.reply_text(
-            "❌ **Напиши:** /search [запрос]\nПример: /search новости про AI",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    query = ' '.join(context.args)
-    await update.message.reply_text(f"🔍 **Ищу:** {query}...")
-    
-    results = await search_web(query)
-    
-    if not results:
-        await update.message.reply_text("😵 **Ничего не нашёл.** Попробуй изменить запрос.")
-        return
-    
-    text = f"🔍 **Результаты по запросу:**\n\n"
-    for i, r in enumerate(results, 1):
-        text += f"{i}. **{r['title']}**\n"
-        text += f"   {r['snippet'][:100]}...\n"
-        text += f"   🔗 `{r['link']}`\n\n"
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-
 # ===== ОБРАБОТЧИК КНОПОК =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -357,49 +334,71 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     
-    if query.data == "balance":
-        coins, _, name = get_user(user_id)
-        await query.edit_message_text(
-            f"💰 **Баланс {name}**\n\n{coins} монет",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    
-    elif query.data == "profile":
-        coins, msgs, name = get_user(user_id)
+    try:
+        if query.data == "balance":
+            coins, _, name = get_user(user_id)
+            await query.edit_message_text(
+                f"💰 **Баланс {name}**\n\n{coins} монет",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
         
-        # Получаем статистику
-        conn = sqlite3.connect('mongpt.db')
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM memory WHERE user_id=?", (user_id,))
-        memory_count = c.fetchone()[0]
-        conn.close()
+        elif query.data == "profile":
+            coins, msgs, name = get_user(user_id)
+            
+            conn = sqlite3.connect('mongpt.db')
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM memory WHERE user_id=?", (user_id,))
+            memory_count = c.fetchone()[0]
+            conn.close()
+            
+            text = (
+                f"👤 **ПРОФИЛЬ**\n\n"
+                f"**Имя:** {name}\n"
+                f"**ID:** `{user_id}`\n"
+                f"**Монет:** {coins}\n"
+                f"**Сообщений:** {msgs}\n"
+                f"**В памяти:** {memory_count} записей"
+            )
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+            return
         
-        text = (
-            f"👤 **ПРОФИЛЬ**\n\n"
-            f"**Имя:** {name}\n"
-            f"**ID:** `{user_id}`\n"
-            f"**Монет:** {coins}\n"
-            f"**Сообщений:** {msgs}\n"
-            f"**В памяти:** {memory_count} записей"
-        )
-        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "help":
-        text = (
-            f"❓ **ПОМОЩЬ**\n\n"
-            f"**Команды:**\n"
-            f"/start - приветствие\n"
-            f"/menu - меню с кнопками\n"
-            f"/search [запрос] - поиск\n\n"
-            f"**Ссылки:** просто кидай, я расскажу\n"
-            f"**Память:** помню последние 24ч\n"
-            f"**Мат:** если материшься, отвечу так же"
-        )
-        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-    
-    elif query.data == "search":
-        await query.edit_message_text(
-            "🔍 **Поиск**\n\nИспользуй команду:\n`/search [запрос]`",
+        elif query.data == "help":
+            text = (
+                f"❓ **ПОМОЩЬ**\n\n"
+                f"**Команды:**\n"
+                f"/start - приветствие\n"
+                f"/menu - меню\n\n"
+                f"**Как общаться:**\n"
+                f"• Просто задавай вопросы\n"
+                f"• Кидай ссылки — я расскажу\n"
+                f"• Используй мат — подстроюсь"
+            )
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        elif query.data == "menu":
+            coins, msgs, name = get_user(user_id)
+            text = (
+                f"📋 **ГЛАВНОЕ МЕНЮ**\n\n"
+                f"👤 **Игрок:** {name}\n"
+                f"💰 **Монет:** {coins}\n"
+                f"💬 **Сообщений:** {msgs}"
+            )
+            await query.edit_message_text(text, reply_markup=get_main_keyboard(), parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        else:
+            await query.edit_message_text(
+                f"❓ Неизвестная команда: {query.data}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+            
+    except Exception as e:
+        print(f"Ошибка в button_handler: {e}")
+        await query.message.reply_text(
+            "⚠️ Произошла ошибка. Попробуй ещё раз.",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -415,7 +414,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     coins, msgs, name = get_user(user.id, user.username, user.first_name)
     update_user(user.id, msg=True)
     
-    # Сохраняем сообщение пользователя в память
+    # Сохраняем сообщение в память
     save_to_memory(user.id, "user", text)
     
     # Получаем контекст из памяти
@@ -445,27 +444,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 link_text += f"🔗 {link}\n\n"
         
-        await update.message.reply_text(link_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            link_text,
+            reply_to_message_id=update.message.message_id,
+            parse_mode=ParseMode.MARKDOWN
+        )
         
         # Убираем ссылки из текста для AI
         text = re.sub(r'https?://[^\s]+', '', text)
     
+    # Если после удаления ссылок текст пустой — не отправляем в AI
     if not text.strip():
         return
+    
+    # Отправляем статус "печатает"
+    await update.message.chat.send_action(action="typing")
+    
+    # Проверяем, нужен ли поиск (вопрос или запрос информации)
+    search_keywords = ['что', 'как', 'где', 'когда', 'почему', 'сколько', 'кто', 'какой', 'новости', 'последние', 'сейчас']
+    needs_search = any(keyword in text.lower() for keyword in search_keywords) or '?' in text
+    
+    search_results = None
+    if needs_search:
+        search_results = await search_web(text)
     
     # Проверяем мат
     has_mat = contains_profanity(text)
     
-    # Отправляем в AI
-    await update.message.chat.send_action(action="typing")
+    # Получаем ответ от AI
+    answer = await ask_openrouter(text, name, has_mat, context_messages, search_results)
     
-    answer = await ask_openrouter(text, name, has_mat, context_messages)
-    
-    # Сохраняем ответ бота в память
+    # Сохраняем ответ в память
     save_to_memory(user.id, "assistant", answer)
     
-    # Отправляем ответ
-    await update.message.reply_text(answer, parse_mode=ParseMode.MARKDOWN)
+    # Отправляем ответ с цитированием
+    await update.message.reply_text(
+        answer,
+        reply_to_message_id=update.message.message_id,
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 # ===== ЗАПУСК =====
 def main():
@@ -475,7 +492,6 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_command))
-    app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
