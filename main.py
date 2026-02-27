@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from gtts import gTTS
 
 # ===== ТВОИ ДАННЫЕ =====
-OPENROUTER_KEY = "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"
+OPENROUTER_KEY = os.environ.get('OPENROUTER_KEY')
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 PORT = int(os.environ.get('PORT', 10000))
 BOT_USERNAME = "@MonGPT_bot"
